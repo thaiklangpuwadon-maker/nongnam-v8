@@ -1,0 +1,17 @@
+{
+  "name": "Nong Nam Companion",
+  "short_name": "Nong Nam",
+  "description": "Your AI Companion Nong Nam",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff5fa",
+  "theme_color": "#df4d88",
+  "icons": [
+    {
+      "src": "/assets/ui/female-card.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
