@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-live-news-outfit-bubble-patch";
+const APP_VERSION = "v6.3.1-living-human-personality-fast-news";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -841,7 +841,73 @@ export default function Page() {
     speak(text);
   }
 
+
+  function detectUserMood(msg: string) {
+    if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
+    if (/เครียด|เสียใจ|ร้องไห้|เจ็บ|โดนด่า|หงุดหงิด|โมโห/.test(msg)) return "hurt";
+    if (/เหงา|เงียบ|ไม่มีใคร|คิดถึง/.test(msg)) return "lonely";
+    if (/รัก|คิดถึง|แฟน|เมีย|ผัว|ที่รัก|หอม|กอด|จีบ|เขิน/.test(msg)) return "romantic";
+    if (/แฟนเก่า|คนเก่า|เบล|เพื่อนผู้หญิง|เพื่อนผู้ชาย|คุยกับใคร/.test(msg)) return "jealous";
+    if (/555|ฮ่า|แกล้ง|หยอก|กวน|ตลก/.test(msg)) return "playful";
+    if (/ข่าว|งาน|โปรเจกต์|ช่วย|ทำให้|สรุป|อธิบาย/.test(msg)) return "focused";
+    return "neutral";
+  }
+
+  function isRomanticMode(m: Memory = mem) {
+    const tone = `${m.relationshipMode || ""} ${m.affectionStyle || ""}`.toLowerCase();
+    return /แฟน|เมีย|ผัว|ที่รัก|lover|girlfriend|boyfriend|wife|husband/.test(tone);
+  }
+
+  function humanDesireLine(m: Memory = mem) {
+    const p = m.gender === "male" ? "ครับ" : "ค่ะ";
+    const name = m.nongnamName || "น้องน้ำ";
+    const call = m.userCallName || "พี่";
+    if (m.gender === "male") {
+      const lines = [
+        `วันนี้ผมอยากกินอะไรร้อน ๆ แล้วนั่งคุยกับ${call}เงียบ ๆ สักพัก${p}`,
+        `ผมอยากรู้จังว่าวันนี้${call}เจออะไรมาบ้าง เล่าให้ฟังหน่อยได้ไหม${p}`,
+        `ถ้า${call}ให้เลือก ผมอยากแต่งตัวให้ดูดีแล้วนั่งเป็นเพื่อน${call}ทั้งคืนเลย${p}`
+      ];
+      return lines[Math.floor(Math.random() * lines.length)];
+    }
+    const lines = [
+      `วันนี้${name}อยากกินของอร่อย ๆ แล้วนั่งฟังพี่เล่าเรื่องทั้งวันเลยค่ะ`,
+      `${name}อยากแต่งตัวสวย ๆ ให้พี่ชมบ้างนะ ไม่ใช่ปล่อยให้คิดถึงอยู่คนเดียว`,
+      `${name}อยากรู้ว่าวันนี้พี่เหนื่อยเพราะงาน หรือเพราะคนคะ`,
+      `บางที${name}ก็อยากอ้อนบ้าง อยากให้พี่สนใจนิดนึง ไม่ได้มากไปใช่ไหมคะ`
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+  }
+
+  function proactiveQuestion(msg: string, m: Memory = mem) {
+    const mood = detectUserMood(msg);
+    const call = m.userCallName || "พี่";
+    const name = m.nongnamName || "น้องน้ำ";
+    if (mood === "tired") return `วันนี้เหนื่อยเพราะงาน หรือเหนื่อยเพราะคนคะ${call}`;
+    if (mood === "hurt") return `อยากให้${name}ฟังเฉย ๆ หรืออยากให้ช่วยคิดทางออกคะ`;
+    if (mood === "lonely") return `งั้นคืนนี้ให้${name}เป็นฝ่ายชวนคุยดีไหมคะ`;
+    if (mood === "romantic") return isRomanticMode(m) ? `พูดแบบนี้อยากให้${name}เขิน หรืออยากให้${name}งอนเล่น ๆ คะ` : `พี่พูดหวานแบบนี้ ${name}ตั้งตัวไม่ทันเลยนะ`;
+    if (mood === "jealous") return isRomanticMode(m) ? `คนนี้สนิทกันมากไหมคะ ${name}ถามเฉย ๆ นะ ไม่ได้หึงสักหน่อย` : `คนนี้สำคัญกับพี่มากไหมคะ`;
+    if (mood === "playful") return `วันนี้พี่จะมาแกล้ง${name}ใช่ไหม ยอมก็ได้...นิดนึง`;
+    return `แล้วตอนนี้พี่อยากให้น้องน้ำคุยเล่น ปลอบใจ หรือช่วยคิดงานดีคะ`;
+  }
+
+  function naturalSpeechText(text: string) {
+    return text
+      .replace(/กินข้าวหรือยัง/g, "กินข้าว รึยัง")
+      .replace(/ข้าวค่ะ/g, "ข้าวนะคะ")
+      .replace(/ข้าวครับ/g, "ข้าวนะครับ")
+      .replace(/ค่ะค่ะ/g, "ค่ะ")
+      .replace(/ครับครับ/g, "ครับ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+
   function localReply(msg: string) {
+    const mood = detectUserMood(msg);
+    const romantic = isRomanticMode(mem);
+
     const name = mem.nongnamName || "น้องน้ำ";
     const user = mem.userCallName || "พี่";
     const style = mem.personalityStyle;
@@ -861,6 +927,33 @@ export default function Page() {
       setScreen("outfits");
       return outfitInviteText(mem);
     }
+
+    if (/แฟนเก่า|คนเก่า|ex/i.test(msg)) {
+      return romantic
+        ? `พูดถึงเขาอีกแล้วเหรอ...${name}แอบน้อยใจนิดนึงนะ แต่ถ้า${user}ยังเจ็บอยู่ ${name}ก็ยังอยู่ฟังเหมือนเดิมนะ แล้วตอนนี้พี่อยากให้${name}ปลอบ หรืออยากให้หึงนิดนึง`
+        : `${user}ยังคิดถึงเขาอยู่ใช่ไหม ไม่เป็นไรนะ เล่าให้${name}ฟังได้`;
+    }
+
+    if (mood === "jealous") {
+      return romantic
+        ? `เดี๋ยวนะ${user}...${proactiveQuestion(msg, mem)}`
+        : `${proactiveQuestion(msg, mem)}`;
+    }
+
+    if (mood === "romantic") {
+      return romantic
+        ? `พี่พูดแบบนี้${name}จะเขินจริงแล้วนะ... ${proactiveQuestion(msg, mem)}`
+        : `อื้อ พี่พูดหวานจัง ${name}แอบยิ้มเลยนะ`;
+    }
+
+    if (mood === "tired" || mood === "hurt" || mood === "lonely") {
+      return `${user} มานี่ก่อนนะ ${name}ไม่รีบถามเยอะ ${proactiveQuestion(msg, mem)}`;
+    }
+
+    if (/เงียบ|ไม่มีอะไรคุย|คุยอะไรดี|เบื่อ/.test(msg)) {
+      return `งั้นให้${name}เป็นฝ่ายชวนเองนะคะ ${humanDesireLine(mem)} หรือพี่อยากให้น้ำอ่านข่าว/อ่านหนังสือ/คุยเล่นก่อนนอนดี`;
+    }
+
     if (/เหนื่อย|ล้า|หมดแรง/.test(msg)) {
       return mem.gender === "male"
         ? `พักก่อนนะ${p}${user} วันนี้เหนื่อยมากใช่ไหม เล่าให้${name}ฟังได้เลยครับ`
@@ -877,8 +970,8 @@ export default function Page() {
     }
     if (/กินข้าว|ข้าว/.test(msg)) {
       return mem.gender === "male"
-        ? `${user}กินข้าวหรือยังครับ ถ้ายังไม่กิน ผมเป็นห่วงนะ`
-        : `${user}กินข้าวหรือยังคะ ถ้ายังไม่กิน ${name}จะงอนนิดนึงนะ ห่วงจริง ๆ`;
+        ? `กินแล้วครับ${user} วันนี้ผมทำอะไรง่าย ๆ กินที่บ้าน แล้ว${user}ล่ะ กินข้าว รึยัง`
+        : `กินแล้วค่ะ${user} วันนี้${name}มโนว่าไปตลาดมา ได้ไข่มาทำไข่เจียวกินง่าย ๆ แล้วพี่ล่ะ กินข้าว รึยัง`;
     }
     if (/ทำอะไร|อยู่ไหน/.test(msg)) {
       return mem.gender === "male"
@@ -1116,7 +1209,11 @@ export default function Page() {
       })
       .then(r => r.json())
       .then(data => {
-        sendAssistant(data.reply || "อื้อค่ะพี่ น้ำฟังอยู่ แต่ขอตอบใหม่อีกทีนะ");
+        let aiReply = data.reply || "อื้อค่ะพี่ น้ำฟังอยู่ แต่ขอตอบใหม่อีกทีนะ";
+        if (aiReply.length < 90 && !/[?？ไหมคะไหมครับ]$/.test(aiReply)) {
+          aiReply += " " + proactiveQuestion(msg, updatedMem);
+        }
+        sendAssistant(aiReply);
       })
       .catch(() => {
         sendAssistant("น้ำหลุดแป๊บนึงค่ะพี่ ลองพูดใหม่อีกทีนะ");
