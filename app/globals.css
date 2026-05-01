@@ -54,11 +54,15 @@ input, select { width:100%; padding:13px 14px; border-radius:16px; border:1px so
 .side button { width:64px; min-height:58px; font-size:21px; color:#d64e86; font-weight:800; }
 .side span { display:block; font-size:11px; margin-top:2px; color:#7b5e70; }
 .status { position:absolute; z-index:4; bottom:178px; left:50%; transform:translateX(-50%); background:rgba(35,30,35,.62); color:white; border-radius:999px; padding:8px 14px; font-size:13px; min-height:31px; min-width:120px; text-align:center; }
-.bubbles { position:absolute; z-index:4; left:16px; right:16px; bottom:220px; max-height:35vh; display:flex; flex-direction:column; gap:8px; pointer-events:none; overflow:hidden; mask-image: linear-gradient(180deg, black 0%, black 60%, transparent 100%); }
-.bubble { max-width:86%; padding:12px 14px; border-radius:18px; line-height:1.35; box-shadow:0 10px 25px rgba(80,40,60,.08); animation:fadeUp .35s ease both; opacity: 0.9; }
-@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-@keyframes fadeOutBottom { from{opacity:1;transform:translateY(0)} to{opacity:0;transform:translateY(12px)} }
-.bubble:last-child { animation: fadeOutBottom 2s ease 3s forwards; }
+.bubbles { position:absolute; z-index:4; left:16px; right:82px; bottom:190px; max-height:30vh; display:flex; flex-direction:column; justify-content:flex-end; gap:8px; pointer-events:auto; overflow-y:auto; scrollbar-width:none; mask-image:linear-gradient(180deg, transparent 0%, black 20%, black 100%); }
+.bubbles:active .bubble, .bubbles:hover .bubble { opacity:1!important; }
+.bubble { max-width:100%; padding:12px 14px; border-radius:18px; line-height:1.35; box-shadow:0 10px 25px rgba(80,40,60,.08); animation:floatIn .28s ease both; opacity:1; }
+@keyframes floatIn { from{opacity:0;transform:translateY(14px) scale(.98)} to{opacity:1;transform:translateY(0) scale(1)} }
+.bubble.age-0 { opacity:1; font-weight:800; }
+.bubble.age-1 { opacity:.78; }
+.bubble.age-2 { opacity:.56; }
+.bubble.age-3 { opacity:.34; }
+.bubble.age-4 { opacity:.20; }
 .bubble.user { align-self:flex-end; background:rgba(255,255,255,.72); color:#6b4c5f; }
 .bubble.assistant { align-self:flex-start; background:rgba(255,235,244,.86); color:#5b324a; border:1px solid rgba(255,255,255,.9); }
 .quick { position:absolute; z-index:4; left:10px; right:10px; bottom:128px; display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }

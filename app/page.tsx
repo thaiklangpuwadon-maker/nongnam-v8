@@ -24,6 +24,7 @@ type NewsItem = {
   published: string;
   summary: string;
   category: string;
+  ageDays?: number;
 };
 type Category = "regular" | "special20";
 
@@ -88,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-news-speak-fix";
+const APP_VERSION = "v6.3.1-live-news-outfit-bubble-patch";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -566,7 +567,18 @@ export default function Page() {
   }
 
   function isNewsIntent(msg: string) {
-    return /(ข่าว|ข่าววันนี้|ข่าวช่วงนี้|มีอะไรเกิดขึ้น|เกิดอะไรขึ้นบ้าง|ข่าวเด่น|ข่าวกระแส|สรุปข่าว|เล่าข่าว|ข่าวแรงงาน|แรงงานไทย|ข่าวเกาหลี|ข่าวไทยในเกาหลี|อัปเดตแรงงาน|สถานทูต|วีซ่า)/i.test(msg);
+    return /(ข่าว|ข่าววันนี้|ข่าวช่วงนี้|มีข่าวไหม|มีข่าวอะไร|วันนี้มีอะไร|มีอะไรอัปเดต|อัปเดตวันนี้|อัปเดตข่าว|สรุปข่าว|เล่าข่าว|อ่านข่าว|ข่าวเด่น|ข่าวกระแส|มีอะไรเกิดขึ้น|เกิดอะไรขึ้นบ้าง|ข่าวแรงงาน|แรงงานไทย|ข่าวเกาหลี|ข่าวไทยในเกาหลี|อัปเดตแรงงาน|สถานทูต|วีซ่า)/i.test(msg);
+  }
+
+  function isOutfitIntent(msg: string) {
+    return /(ชุด|เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เสื้อผ้า|แต่งตัว|ชุดใหม่|ชุดน่ารัก|ชุดสวย|ชุดพิเศษ|ชุดอ่านหนังสือ|ชุดว่ายน้ำ|โรแมนติก|อยากใส่ชุดไหน|ใส่ชุดไหนดี|ชุดไหนดี|น้ำเลือกชุด|น้องน้ำเลือกชุด)/i.test(msg);
+  }
+
+  function outfitInviteText(m: Memory = mem) {
+    const call = m.userCallName || "พี่";
+    const p = m.gender === "male" ? "ครับ" : "ค่ะ";
+    const self = m.gender === "male" ? "ผม" : (m.nongnamName || "น้องน้ำ");
+    return `${call} เดี๋ยว${self}พาไปเลือกชุดนะ${p} พี่อยากให้${self}ใส่ลุคหวาน ๆ หรือชุดพิเศษก่อนดี`;
   }
 
   function newsIntroText(m: Memory = mem) {
@@ -587,7 +599,7 @@ export default function Page() {
     setNewsFocus(focus);
     sendAssistant(newsIntroText(mem));
     try {
-      const res = await fetch(`/api/news?q=${encodeURIComponent(focus || "แรงงานไทย เกาหลี ข่าวเด่น")}`);
+      const res = await fetch(`/api/news?q=${encodeURIComponent(focus || "แรงงานไทย เกาหลี ข่าวเด่น")}&t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
       const items = Array.isArray(data.items) ? data.items : [];
       setNewsItems(items);
@@ -611,12 +623,15 @@ export default function Page() {
     const source = item.source ? `จาก ${item.source}` : "จากข่าวต้นฉบับ";
     const cleanSummary = (item.summary || "").replace(/\s+/g, " ").trim();
     const shortSummary = cleanSummary.length > 150 ? `${cleanSummary.slice(0, 150)}…` : cleanSummary;
-    const msg = `${mem.userCallName} ${mem.nongnamName}สรุปข่าวนี้ให้ฟังนะ${p} หัวข้อคือ “${item.title}” ${source} ใจความสั้น ๆ คือ ${shortSummary || "รายละเอียดในพาดหัวยังไม่เยอะ ถ้าพี่สนใจเปิดต้นฉบับอ่านต่อได้เลย"}`;
-    setScreen("chat");
+    const safeTitle = (item.title || "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const safeSource = (item.source || "ข่าวต้นฉบับ").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const safeSummary = (shortSummary || "รายละเอียดในพาดหัวยังไม่เยอะ ถ้าพี่สนใจเปิดต้นฉบับอ่านต่อได้เลย").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const msg = `${mem.userCallName} สรุปข่าวนี้นะ${p} หัวข้อ “${safeTitle}” จาก ${safeSource} ใจความคือ ${safeSummary}`;
+    // อยู่หน้า News ต่อ เพื่อให้พี่เลื่อนดูข่าวอื่นได้
     setStatus("speaking");
-    sendAssistant(msg);
+    setChat(prev => [...prev, { role: "assistant" as const, text: msg, ts: Date.now() }].slice(-8));
     notify("กำลังอ่านสรุปข่าวให้ฟัง");
-    setTimeout(() => forceSpeak(msg), 350);
+    setTimeout(() => forceSpeak(msg), 120);
   }
 
   function updateMem(patch: Partial<Memory>) {
@@ -793,6 +808,15 @@ export default function Page() {
       setScreen("books");
       return bookInviteText(mem);
     }
+    if (isNewsIntent(msg)) {
+      setScreen("news");
+      setTimeout(() => loadNews(msg), 100);
+      return newsIntroText(mem);
+    }
+    if (isOutfitIntent(msg)) {
+      setScreen("outfits");
+      return outfitInviteText(mem);
+    }
     if (/เหนื่อย|ล้า|หมดแรง/.test(msg)) {
       return mem.gender === "male"
         ? `พักก่อนนะ${p}${user} วันนี้เหนื่อยมากใช่ไหม เล่าให้${name}ฟังได้เลยครับ`
@@ -959,7 +983,17 @@ export default function Page() {
 
     if (isNewsIntent(msg)) {
       setStatus("idle");
-      setTimeout(() => loadNews(msg), 150);
+      setScreen("news");
+      notify("กำลังพาไปหน้าอัปเดตข่าว");
+      setTimeout(() => loadNews(msg), 100);
+      return;
+    }
+
+    if (isOutfitIntent(msg)) {
+      setStatus("idle");
+      setScreen("outfits");
+      const invite = outfitInviteText(updatedMem);
+      setTimeout(() => sendAssistant(invite), 120);
       return;
     }
 
@@ -1426,6 +1460,7 @@ export default function Page() {
             <div className="side">
               <button onClick={()=>setScreen("outfits")}>👗<span>ชุด</span></button>
               <button onClick={()=>{setBookCat("ทั้งหมด"); setScreen("books");}}>📚<span>หนังสือ</span></button>
+              <button onClick={()=>loadNews("ข่าวเด่น เกาหลีใต้ วันนี้ แรงงานไทย")}>📰<span>ข่าว</span></button>
               <button onClick={()=>setZoom(z=>Math.min(1.7, z+.15))}>＋</button>
               <button onClick={()=>setZoom(z=>Math.max(.85, z-.15))}>－</button>
             </div>
@@ -1449,7 +1484,7 @@ export default function Page() {
               </div>
             )}
             <div className="bubbles">
-              {chat.slice(-3).map((m,i)=><div key={m.ts+i} className={`bubble ${m.role}`}>{m.text}</div>)}
+              {chat.slice(-5).map((m,i,arr)=><div key={m.ts+i} className={`bubble ${m.role} age-${arr.length-i-1}`}>{m.text}</div>)}
             </div>
             <div className="quick">
               <button onClick={()=>send("วันนี้พี่เหนื่อยมากเลย")}>เหนื่อย</button>
