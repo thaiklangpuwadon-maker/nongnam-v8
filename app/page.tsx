@@ -588,30 +588,74 @@ export default function Page() {
     return `${call} เดี๋ยว${self}ไล่ข่าวเด่นให้${p} จะเอาทั้งข่าวกระแส และข่าวที่เกี่ยวกับแรงงานไทย/คนไทยในเกาหลีมาไว้ก่อน ถ้าสนใจข่าวไหนกดสรุปข่าวนั้นได้เลย`;
   }
 
+  function newsSearchingText(m: Memory = mem) {
+    const name = m.nongnamName || "น้องน้ำ";
+    const call = m.userCallName || "พี่";
+    const rel = `${m.relationshipMode || ""} ${m.affectionStyle || ""}`.toLowerCase();
+    if (/ผัว|สามี|husband/.test(rel)) return `แป๊บเดียวนะคะผัว เดี๋ยว${name}เช็คข่าววันนี้ให้ก่อนนะ`;
+    if (/แฟน|ที่รัก|lover|girlfriend|boyfriend/.test(rel)) return `แป๊บเดียวนะคะที่รัก เดี๋ยว${name}ไล่ข่าววันนี้ให้`;
+    return `แป๊บเดียวนะคะ${call} เดี๋ยว${name}เช็คให้ว่าวันนี้มีข่าวอะไรน่าสนใจบ้าง`;
+  }
+
+  function newsNoResultText(m: Memory = mem) {
+    const call = m.userCallName || "พี่";
+    const p = m.gender === "male" ? "ครับ" : "ค่ะ";
+    return `${call} ตอนนี้น้องน้ำยังโหลดข่าวจากแหล่งข่าวไม่ได้${p} ไม่ใช่ว่าไม่มีข่าวนะ อาจเป็นแหล่งข่าวตอบช้าหรือระบบดึงข่าวสะดุด ลองกดหมวดข่าวอีกครั้งหรือรีเฟรชหน้าเว็บได้เลย`;
+  }
+
   async function loadNews(focus = "") {
     if (!mem.ownerMode && mem.gems < 3) {
       sendAssistant(`ข่าวต้องใช้พลังนิดนึง${polite}${mem.userCallName} ใช้ 3 เพชร แต่ตอนนี้เพชรไม่พอนะ`);
       return;
     }
+
     if (!mem.ownerMode) updateMem({ gems: Math.max(0, mem.gems - 3) });
+
     setScreen("news");
     setNewsLoading(true);
     setNewsFocus(focus);
-    sendAssistant(newsIntroText(mem));
+    setNewsItems([]);
+
+    sendAssistant(newsSearchingText(mem));
+
+    const queries = [
+      focus,
+      "ข่าววันนี้ ข่าวเด่น",
+      "ข่าวเด่น เกาหลีใต้ วันนี้",
+      "ข่าวกระแส วันนี้",
+      "แรงงานไทย เกาหลี ข่าว",
+      "คนไทยในเกาหลี ข่าว",
+      "South Korea top news today"
+    ].filter(Boolean);
+
     try {
-      const res = await fetch(`/api/news?q=${encodeURIComponent(focus || "แรงงานไทย เกาหลี ข่าวเด่น")}&t=${Date.now()}`, { cache: "no-store" });
-      const data = await res.json();
-      const items = Array.isArray(data.items) ? data.items : [];
-      setNewsItems(items);
-      if (items.length) {
+      let found: NewsItem[] = [];
+      let lastNote = "";
+
+      for (const q of queries) {
+        const res = await fetch(`/api/news?q=${encodeURIComponent(q)}&t=${Date.now()}`, { cache: "no-store" });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        lastNote = data.note || "";
+        if (items.length) {
+          found = items;
+          break;
+        }
+      }
+
+      setNewsItems(found);
+
+      if (found.length) {
         setTimeout(() => {
-          sendAssistant(`เจอข่าวน่าสนใจ ${items.length} เรื่อง${polite}${mem.userCallName} กดสรุปข่าวที่สนใจได้เลย`);
+          sendAssistant(`เจอข่าวน่าสนใจ ${found.length} เรื่อง${polite}${mem.userCallName} กดสรุปข่าวที่สนใจได้เลย`);
         }, 350);
       } else {
-        sendAssistant(`ยังไม่เจอข่าวที่ชัดพอ${polite}${mem.userCallName} ลองค้นคำอื่นไหม`);
+        console.warn("No news returned after fallback", lastNote);
+        sendAssistant(newsNoResultText(mem));
       }
-    } catch {
-      sendAssistant(`ข่าวโหลดไม่สำเร็จ${polite}${mem.userCallName} ลองใหม่อีกทีนะ`);
+    } catch (err) {
+      console.error("loadNews failed", err);
+      sendAssistant(newsNoResultText(mem));
     } finally {
       setNewsLoading(false);
     }
@@ -1581,7 +1625,7 @@ export default function Page() {
               <button onClick={()=>loadNews("ข่าวเกาหลีใต้ ล่าสุด กระแส")}>เกาหลีกระแส</button>
             </div>
             {newsLoading && <div className="resumeBox">กำลังไล่ข่าวให้อยู่ รอแป๊บนึงนะ...</div>}
-            {!newsLoading && !newsItems.length && <div className="resumeBox">ยังไม่มีข่าวในหน้านี้ กดหมวดด้านบนเพื่อค้นข่าวได้เลย</div>}
+            {!newsLoading && !newsItems.length && <div className="resumeBox">ยังไม่ได้โหลดข่าวขึ้นมา ถ้ารอสักครู่แล้วยังไม่ขึ้น ให้กดหมวดด้านบนเพื่อค้นใหม่อีกครั้ง</div>}
             <div className="newsList">
               {newsItems.map((n, i) => (
                 <div className="newsItem" key={`${n.link}-${i}`}>
