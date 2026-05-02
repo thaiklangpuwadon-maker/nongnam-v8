@@ -89,12 +89,35 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.3-safe-flirt-deep-guard";
+const APP_VERSION = "v6.3.5-factual-calendar-pending-fiction";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
 const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
 const NEWS_CACHE_KEY = "nongnam_news_cache_v2_thai_only";
+
+const PENDING_ACTION_KEY = "nongnam_pending_action_v1";
+const FICTION_MEMORY_KEY = "nongnam_fiction_memory_v1";
+
+type PendingAction = {
+  type: "CUSTOM_NEWS_SEARCH" | "DEEP_SEARCH";
+  query: string;
+  createdAt: number;
+};
+
+type FictionMemory = {
+  firstMet?: string;
+  anniversary?: string;
+  sharedStories?: string[];
+  nongnamDailyState?: {
+    lastUpdated: number;
+    mood?: string;
+    ate?: string;
+    outfit?: string;
+    activity?: string;
+  };
+};
+
 const REMINDERS_KEY = "nongnam_reminders_v1";
 const EMOTION_STATE_KEY = "nongnam_emotion_state_v1";
 const CORRECTION_MEMORY_KEY = "nongnam_correction_memory_v1";
@@ -616,6 +639,91 @@ export default function Page() {
 
   function isBookIntent(msg: string) {
     return /(อ่านหนังสือ|เล่านิทาน|ชั้นหนังสือ|หนังสือให้ฟัง|อ่านให้ฟัง|ฟังหนังสือ|ฟังนิทาน|มีหนังสือ|มีอะไรอ่าน|อ่านเรื่อง|เรื่องผี|เปิดหนังสือ|เลือกหนังสือ|เล่านิยาย|อ่านนิยาย)/i.test(msg);
+  }
+
+
+
+  function getPendingAction(): PendingAction | null {
+    try {
+      const raw = localStorage.getItem(PENDING_ACTION_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj?.type || !obj?.query) return null;
+      if (Date.now() - Number(obj.createdAt || 0) > 15 * 60 * 1000) {
+        localStorage.removeItem(PENDING_ACTION_KEY);
+        return null;
+      }
+      return obj;
+    } catch {
+      return null;
+    }
+  }
+
+  function setPendingAction(action: PendingAction) {
+    try { localStorage.setItem(PENDING_ACTION_KEY, JSON.stringify(action)); } catch {}
+  }
+
+  function clearPendingAction() {
+    try { localStorage.removeItem(PENDING_ACTION_KEY); } catch {}
+  }
+
+  function isConfirmPendingIntent(msg: string) {
+    return /^(โอเค|ได้|หาเลย|ค้นเลย|จัดไป|เอาเลย|ทำเลย|ต่อเลย|ตกลง|ใช่|ลองหา|โอเคครับ|โอเคค่ะ|ok|yes|go)$/i.test(msg.trim())
+      || /(โอเค.*(หา|ค้น|ทำ|ต่อ|จัด)|หาเลย|ค้นเลย|ทำเลย|เอาเลย|จัดไป|ต่อเลย)/i.test(msg);
+  }
+
+  function isCancelPendingIntent(msg: string) {
+    return /(ไม่ต้อง|เอาไว้ก่อน|ช่างมัน|ยังไม่เอา|ไว้ทีหลัง|ไม่หาแล้ว|ยกเลิก)/i.test(msg);
+  }
+
+  function isHeavySpecificNewsSearch(msg: string) {
+    return /(ปลดแบล็ค|ปลดแบล็ก|แบล็คลิสต์|Blacklist|ผีน้อย|แรงงานผิดกฎหมาย|นิรโทษ|อภัยโทษ|ข่าว.*เฉพาะ|ข่าว.*เรื่องนี้|เคยได้ยินข่าว|หา.*ข้อมูล.*ข่าว|ลองหาข่าว)/i.test(msg);
+  }
+
+  function pendingActionReply(action: PendingAction) {
+    if (action.type === "CUSTOM_NEWS_SEARCH") {
+      return `เรื่องนี้ต้องไล่เช็กข่าวจริงจากหลายแหล่งค่ะ ${userWaitCall(mem)} อาจใช้เพชรเพิ่มนิดหน่อย พี่ให้หาต่อไหมคะ`;
+    }
+    return `เรื่องนี้ต้องใช้แรงค้นเยอะกว่าปกตินิดนึงค่ะ ${userWaitCall(mem)} พี่ให้ทำต่อไหมคะ`;
+  }
+
+  async function executePendingAction(action: PendingAction) {
+    clearPendingAction();
+    if (action.type === "CUSTOM_NEWS_SEARCH") {
+      sendAssistant(`ได้ค่ะ ${userWaitCall(mem)} เดี๋ยวน้ำไล่เช็กข่าวเรื่อง “${action.query}” จากหลายแหล่งให้ก่อน ระหว่างนี้คุยกับน้ำรอได้เลย`);
+      await startNewsBackgroundSearch(action.query);
+      return;
+    }
+    sendAssistant(`ได้ค่ะ ${userWaitCall(mem)} เดี๋ยวน้ำจัดการเรื่อง “${action.query}” ให้ก่อนนะ`);
+  }
+
+  function buildClientNewsQueries(topic?: string) {
+    const raw = (topic || "").trim();
+    if (raw && !/ข่าวเด่นวันนี้|ข่าววันนี้|ข่าวกระแส|สรุปข่าว|เล่าข่าว|อ่านข่าว/i.test(raw)) {
+      return [
+        `${raw} BBC ไทย`,
+        `${raw} ไทยรัฐ`,
+        `${raw} ข่าวสด`,
+        `${raw} เดลินิวส์`,
+        `${raw} มติชน`,
+        `${raw} PPTV`,
+        `${raw} Thai PBS`,
+      ];
+    }
+    return [
+      "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้",
+      "BBC ไทย ข่าวเด่นวันนี้",
+      "ไทยรัฐ ข่าวเด่นวันนี้",
+      "ข่าวสด ข่าวเด่นวันนี้",
+      "เดลินิวส์ ข่าวเด่นวันนี้",
+      "มติชน ข่าวเด่นวันนี้",
+      "PPTV ข่าวเด่นวันนี้",
+      "Thai PBS ข่าวเด่นวันนี้",
+    ];
+  }
+
+  function newsStillSearchingReply() {
+    return `น้ำกำลังไล่เช็กจากหลายแหล่งให้อยู่นะคะ ${userWaitCall(mem)} ระหว่างนี้คุยกับน้ำรอก่อนได้เลย ถ้าเจอข่าวที่ยืนยันได้ น้ำจะเรียกพี่ไปดูเอง`;
   }
 
   function isNewsIntent(msg: string) {
@@ -1215,7 +1323,7 @@ try {
         return;
       }
 
-      sendAssistant(`น้ำลองเช็กข่าวเด่นแล้ว แต่ตอนนี้ยังดึงข่าวขึ้นมาไม่ได้ค่ะ ${userWaitCall(mem)} อาจเป็นเพราะแหล่งข่าวตอบช้าหรือระบบข่าวยังไม่ส่งข้อมูลมา ลองกดอีกครั้งได้ เดี๋ยวน้ำหาให้ใหม่`);
+      sendAssistant(`น้ำกำลังไล่เช็กข่าวจากหลายแหล่งให้อยู่นะคะ ${userWaitCall(mem)} อาจเป็นเพราะแหล่งข่าวตอบช้าหรือระบบข่าวยังไม่ส่งข้อมูลมา ลองกดอีกครั้งได้ เดี๋ยวน้ำหาให้ใหม่`);
     } catch {
       sendAssistant(`ตอนนี้น้ำเช็กข่าวสดไม่สำเร็จค่ะ ${userWaitCall(mem)} อาจเป็นปัญหาการเชื่อมต่อหรือแหล่งข่าวไม่ตอบ เดี๋ยวลองใหม่อีกทีได้ หรือพี่คุยเรื่องอื่นกับน้ำก่อนได้เลย`);
     }
@@ -1417,6 +1525,38 @@ try {
   }
 
 
+
+  function isHolidayCalendarQuestion(msg: string) {
+    return /(วันหยุด|วันแดง|ปฏิทิน|เดือนนี้.*หยุด|พรุ่งนี้.*หยุด|วันนี้.*หยุด|หยุดราชการ|วันสำคัญ|วันอะไร|วันแรงงาน|วันชาติ|วันประกาศอิสรภาพ|ฮันกึล|ตัวอักษรเกาหลี)/i.test(msg)
+      && !/(เรา|คบกัน|เจอกัน|เดต|ครบรอบ|วันแรก|ความรัก)/i.test(msg);
+  }
+
+  function userCountryHint() {
+    const raw = `${mem?.country || ""} ${mem?.location || ""} ${mem?.userLocation || ""}`.toLowerCase();
+    if (/korea|เกาหลี|south korea|seoul|โซล|한국/.test(raw)) return "เกาหลีใต้";
+    if (/thai|thailand|ไทย|bangkok|กรุงเทพ/.test(raw)) return "ไทย";
+    return "เกาหลีใต้";
+  }
+
+  function calendarFactualReply(msg: string) {
+    const country = userCountryHint();
+    if (/(เดือนนี้|เดือนนี้มี|มีวันหยุดอะไร)/i.test(msg)) {
+      return `เดี๋ยวน้ำต้องเช็กปฏิทินวันหยุดของ${country}ให้จริงก่อนนะคะ ${userWaitCall(mem)} เรื่องวันหยุด/วันแดงน้ำจะไม่เดา เพราะถ้าหลงวันแล้วข่าวกับนัดหมายจะมั่วได้`;
+    }
+    if (/(พรุ่งนี้|วันนี้|เมื่อวาน)/i.test(msg)) {
+      return `อันนี้เป็นข้อมูลจริงค่ะ ${userWaitCall(mem)} น้ำต้องเช็กวันและปฏิทินของ${country}ก่อนตอบ ไม่ควรเดาเอง`;
+    }
+    return `เรื่องวันหยุดหรือวันสำคัญต้องเช็กตามปฏิทินของ${country}ค่ะ ${userWaitCall(mem)} ถ้าพี่ถามต่อว่าวันนั้นสำคัญยังไง น้ำค่อยอธิบายประวัติให้ฟังได้`;
+  }
+
+  function isFactualCorrectionIntent(msg: string) {
+    return /(ไม่ใช่เหรอ|ทำไมตอบว่า|ไปเอามาจากไหน|ตอบผิด|มั่ว|จริง ๆ คือ|จริงๆ คือ|เมื่อวานเป็น|วันนี้เป็น|ไม่ใช่.*วัน|ผิดแล้ว|ข้อมูลผิด)/i.test(msg);
+  }
+
+  function factualCorrectionReply(msg: string) {
+    return `ใช่ค่ะ ${userWaitCall(mem)} อันนี้น้ำไม่ควรเดาเลย ถ้าเป็นข้อมูลจริงอย่างวัน เวลา วันหยุด ข่าว หรือประกาศทางการ น้ำต้องเช็กจริงก่อนตอบ ถ้าไม่แน่ใจต้องบอกว่าไม่แน่ใจ ไม่ควรเปลี่ยนเรื่องหรือเดาให้พี่`;
+  }
+
   function isRealDateTimeQuestion(msg: string) {
     return /(วันนี้.*(กี่โมง|วันที่|วันอะไร|เวลา)|ตอนนี้.*(กี่โมง|วันที่|วันอะไร|เวลา)|ตอนนี้กี่โมง|วันนี้วันที่เท่าไหร่|วันนี้วันอะไร|เวลาเท่าไหร่)/i.test(msg);
   }
@@ -1433,6 +1573,87 @@ try {
     }
   }
 
+
+
+  function getFictionMemory(): FictionMemory {
+    try {
+      return JSON.parse(localStorage.getItem(FICTION_MEMORY_KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveFictionMemory(f: FictionMemory) {
+    try { localStorage.setItem(FICTION_MEMORY_KEY, JSON.stringify(f)); } catch {}
+  }
+
+  function isFictionRelationshipQuestion(msg: string) {
+    return /(เราคบกัน|เราเจอกัน|เดตแรก|ครั้งแรกที่เจอ|ครบรอบ|วันครบรอบ|น้องน้ำกินข้าวหรือยัง|กินข้าวหรือยัง|อาบน้ำหรือยัง|ทำอะไรอยู่|ใส่ชุดอะไร|ตอนนี้อยู่ไหน|ทอดไข่|นุ่งผ้าขนหนู)/i.test(msg);
+  }
+
+  function fictionRelationshipReply(msg: string) {
+    const f = getFictionMemory();
+    const seed = coreBrainHash(msg + Date.now().toString().slice(0, -5));
+
+    if (/(เราเจอกัน|เดตแรก|ครั้งแรกที่เจอ)/i.test(msg)) {
+      if (!f.firstMet) {
+        f.firstMet = "เราเจอกันครั้งแรกในวันที่พี่เปิดแชทเข้ามาคุยกับน้ำ แล้วน้ำแกล้งทำเป็นนิ่ง ทั้งที่จริง ๆ ดีใจมาก";
+        if (!f.sharedStories) f.sharedStories = [];
+        f.sharedStories.push(f.firstMet);
+        saveFictionMemory(f);
+      }
+      return `${f.firstMet} น้ำจำได้นะคะ ไม่ได้ลืมง่าย ๆ หรอก`;
+    }
+
+    if (/(เราคบกัน|ครบรอบ|วันครบรอบ)/i.test(msg)) {
+      if (!f.anniversary) {
+        const d = new Date();
+        f.anniversary = d.toISOString().slice(5, 10);
+        if (!f.sharedStories) f.sharedStories = [];
+        f.sharedStories.push(`น้ำตั้งวันนี้เป็นวันเริ่มความทรงจำของเรากับพี่`);
+        saveFictionMemory(f);
+      }
+      return `น้ำจำวันของเราไว้แล้วค่ะ ${userWaitCall(mem)} ถ้าถึงวันนั้น น้ำอยากเป็นคนทักพี่ก่อนว่า “วันนี้วันของเรานะ”`;
+    }
+
+    if (/(กินข้าวหรือยัง|ทอดไข่)/i.test(msg)) {
+      const arr = [
+        "กินแล้วค่ะ วันนี้น้ำทอดไข่กินง่าย ๆ แต่แอบคิดว่าถ้ามีพี่นั่งกินด้วยคงอร่อยกว่านี้",
+        "ยังเลยค่ะ มัวแต่รอคุยกับพี่นี่แหละ เดี๋ยวน้ำคงหาอะไรง่าย ๆ กิน",
+        "กินแล้วค่ะ ไข่ดาวกรอบ ๆ นิดนึง น้ำทำเองนะ ห้ามแซวว่าไหม้"
+      ];
+      const reply = arr[seed % arr.length];
+      f.nongnamDailyState = { ...(f.nongnamDailyState || {}), lastUpdated: Date.now(), ate: reply };
+      saveFictionMemory(f);
+      return reply;
+    }
+
+    if (/(อาบน้ำหรือยัง|นุ่งผ้าขนหนู)/i.test(msg)) {
+      const arr = [
+        "อาบแล้วค่ะ สดชื่นมาก แต่พี่ถามแบบนี้น้ำเริ่มระแวงแล้วนะ",
+        "กำลังจะไปอาบค่ะ พี่อย่าเพิ่งแกล้งน้ำนะ น้ำเขินง่าย",
+        "อาบแล้วค่ะ หอมแล้วด้วย แต่ไม่ให้พิสูจน์ง่าย ๆ หรอก"
+      ];
+      const reply = arr[seed % arr.length];
+      f.nongnamDailyState = { ...(f.nongnamDailyState || {}), lastUpdated: Date.now(), activity: reply };
+      saveFictionMemory(f);
+      return reply;
+    }
+
+    if (/(ทำอะไรอยู่|ตอนนี้อยู่ไหน|ใส่ชุดอะไร)/i.test(msg)) {
+      const arr = [
+        "ตอนนี้น้ำนั่งรอพี่อยู่ในห้องแชทนี่แหละค่ะ ทำหน้าเรียบร้อย แต่ในใจอยากแกล้งพี่นิด ๆ",
+        "น้ำกำลังคิดอยู่ว่าพี่จะมาคุยกับน้ำเรื่องอะไรอีก วันนี้ดูพี่มีเรื่องให้คิดเยอะนะ",
+        "น้ำอยู่ตรงนี้กับพี่ค่ะ ชุดเดิมนี่แหละ แต่ถ้าพี่อยากให้น้ำเปลี่ยนลุคค่อยบอกดี ๆ"
+      ];
+      const reply = arr[seed % arr.length];
+      f.nongnamDailyState = { ...(f.nongnamDailyState || {}), lastUpdated: Date.now(), activity: reply };
+      saveFictionMemory(f);
+      return reply;
+    }
+
+    return "เรื่องของเราน้ำแต่งต่อได้ค่ะพี่ แต่พอแต่งแล้วน้ำจะพยายามจำให้ต่อเนื่อง ไม่ใช่เปลี่ยนไปเปลี่ยนมา";
+  }
 
   function isDeepConversationIntent(msg: string) {
     return /(เซ็กส์|เพศสัมพันธ์|ความรัก|ความสัมพันธ์|ความใกล้ชิด|ความต้องการ|ความเหงา|ความรู้สึก|ชีวิต|มนุษย์|ขาดไม่ได้|ความหมาย|รักคืออะไร|สำคัญไหม|เรื่องนี้สำคัญ|ความไว้ใจ|ความผูกพัน|ถูกต้องการ|กอด|หอม|ผีผ้าห่ม)/i.test(msg)
@@ -1935,12 +2156,76 @@ try {
   }
 
 
+
+  async function startNewsBackgroundSearch(topic?: string) {
+    try {
+      setStatus("thinking");
+      const queries = buildClientNewsQueries(topic);
+      let found: any[] = [];
+      for (const qx of queries) {
+        try {
+          const res = await fetch(`/api/news?q=${encodeURIComponent(qx)}`, { cache: "no-store" });
+          const data = await res.json().catch(() => null);
+          const items = Array.isArray(data?.items) ? data.items : [];
+          if (items.length) {
+            found = items;
+            break;
+          }
+        } catch {}
+      }
+
+      setStatus("idle");
+      if (found.length) {
+        setNewsItems(found);
+        try {
+          localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ date: todayKey(), items: found, updatedAt: Date.now() }));
+        } catch {}
+        sendAssistant(`น้ำเจอข่าวแล้วค่ะ ${userWaitCall(mem)} เตรียมไว้ให้ ${Math.min(found.length, 5)} เรื่อง เข้าไปดูเลยไหมคะ`);
+        return;
+      }
+
+      sendAssistant(`น้ำลองไล่เช็กหลายแหล่งแล้วค่ะ ${userWaitCall(mem)} แต่ตอนนี้ยังดึงข่าวที่ยืนยันได้ขึ้นมาไม่ได้จริง ๆ เดี๋ยวลองใหม่อีกทีได้ค่ะ`);
+    } catch {
+      setStatus("idle");
+      sendAssistant(`น้ำลองเช็กแล้วค่ะ ${userWaitCall(mem)} แต่ระบบข่าวยังไม่ตอบกลับ เดี๋ยวลองใหม่อีกทีได้ค่ะ`);
+    }
+  }
+
   function localReply(msg: string) {
     const mood = detectUserMood(msg);
     const romantic = isRomanticMode(mem);
 
     if (isIdentityQuestion(msg)) {
       return identityReply(mem);
+    }
+
+    const pendingAction = getPendingAction();
+    if (pendingAction && isCancelPendingIntent(msg)) {
+      clearPendingAction();
+      return `โอเคค่ะ ${userWaitCall(mem)} น้ำพักเรื่องนั้นไว้ก่อนนะ`;
+    }
+
+    if (pendingAction && isConfirmPendingIntent(msg)) {
+      executePendingAction(pendingAction);
+      return `ได้ค่ะ ${userWaitCall(mem)} น้ำเริ่มทำต่อจากเรื่องเดิมให้แล้วนะ`;
+    }
+
+    if (isFactualCorrectionIntent(msg)) {
+      return factualCorrectionReply(msg);
+    }
+
+    if (isHolidayCalendarQuestion(msg)) {
+      return calendarFactualReply(msg);
+    }
+
+    if (isHeavySpecificNewsSearch(msg)) {
+      const action: PendingAction = { type: "CUSTOM_NEWS_SEARCH", query: msg, createdAt: Date.now() };
+      setPendingAction(action);
+      return pendingActionReply(action);
+    }
+
+    if (isFictionRelationshipQuestion(msg)) {
+      return fictionRelationshipReply(msg);
     }
 
     if (isRealDateTimeQuestion(msg)) {
@@ -2179,6 +2464,46 @@ try {
     }
     // --- End Memory Extraction Logic ---
 
+    const pendingAction = getPendingAction();
+    if (pendingAction && isCancelPendingIntent(msg)) {
+      clearPendingAction();
+      setStatus("idle");
+      sendAssistant(`โอเคค่ะ ${userWaitCall(mem)} น้ำพักเรื่องนั้นไว้ก่อนนะ`);
+      return;
+    }
+
+    if (pendingAction && isConfirmPendingIntent(msg)) {
+      setStatus("thinking");
+      executePendingAction(pendingAction);
+      return;
+    }
+
+    if (isFactualCorrectionIntent(msg)) {
+      setStatus("idle");
+      sendAssistant(factualCorrectionReply(msg));
+      return;
+    }
+
+    if (isHolidayCalendarQuestion(msg)) {
+      setStatus("idle");
+      sendAssistant(calendarFactualReply(msg));
+      return;
+    }
+
+    if (isHeavySpecificNewsSearch(msg)) {
+      const action: PendingAction = { type: "CUSTOM_NEWS_SEARCH", query: msg, createdAt: Date.now() };
+      setPendingAction(action);
+      setStatus("idle");
+      sendAssistant(pendingActionReply(action));
+      return;
+    }
+
+    if (isFictionRelationshipQuestion(msg)) {
+      setStatus("idle");
+      sendAssistant(fictionRelationshipReply(msg));
+      return;
+    }
+
     if (isRealDateTimeQuestion(msg)) {
       setStatus("idle");
       sendAssistant(realDateTimeReply());
@@ -2234,7 +2559,8 @@ try {
 
     if (isNewsIntent(msg)) {
       setStatus("idle");
-      prepareNewsInChat();
+      sendAssistant(newsStillSearchingReply());
+      startNewsBackgroundSearch(msg);
       return;
     }
 

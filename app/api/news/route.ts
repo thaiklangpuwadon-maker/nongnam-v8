@@ -292,22 +292,46 @@ function uniqueItems(items: NewsItem[]) {
   return out;
 }
 
-export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ BBC ไทย ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV Thai PBS";
 
-  const queries = [
-    q,
-    "ข่าววันนี้ ข่าวเด่น",
-    "เดลินิวส์ ข่าวเด่นวันนี้",
-    "ข่าวเด่น ไทย วันนี้",
-    "มติชน ข่าวเด่นวันนี้",
-    "PPTV ข่าวเด่นวันนี้",
-    "เกาหลี ข่าวกระแส วันนี้",
-    "เศรษฐกิจ ค่าครองชีพ ค่าเงิน วันนี้",
-    "แรงงานไทย เกาหลี ข่าว",
-    "แรงงานต่างชาติ เกาหลีใต้ วีซ่า",
-    "ข่าวเด่นวันนี้ ไทย"
+function buildNewsQueries(q: string) {
+  const raw = (q || "").trim();
+
+  // If the user asks for a specific incident/topic, search that topic first across trusted Thai sources.
+  const isSpecific = raw && !/ข่าวเด่นวันนี้|ข่าววันนี้|เรื่องเล่าเช้านี้|ข่าวกระแส|ข่าวหน้าหนึ่ง/i.test(raw);
+
+  if (isSpecific) {
+    return [
+      `${raw} site:bbc.com/thai`,
+      `${raw} site:thairath.co.th`,
+      `${raw} site:khaosod.co.th`,
+      `${raw} site:dailynews.co.th`,
+      `${raw} site:matichon.co.th`,
+      `${raw} site:pptvhd36.com`,
+      `${raw} site:thaipbs.or.th`,
+      raw
+    ];
+  }
+
+  return [
+    "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้",
+    "ข่าวเด่นวันนี้ site:bbc.com/thai",
+    "ข่าวเด่นวันนี้ site:thairath.co.th",
+    "ข่าวเด่นวันนี้ site:khaosod.co.th",
+    "ข่าวเด่นวันนี้ site:dailynews.co.th",
+    "ข่าวเด่นวันนี้ site:matichon.co.th",
+    "ข่าวเด่นวันนี้ site:pptvhd36.com",
+    "ข่าวเด่นวันนี้ site:thaipbs.or.th",
+    "ข่าวหน้าหนึ่งวันนี้ ไทยรัฐ ข่าวสด เดลินิวส์ มติชน PPTV Thai PBS BBC ไทย"
   ];
+}
+
+
+export async function GET(req: NextRequest) {
+  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่นวันนี้";
+  const newsQueries = buildNewsQueries(q);
+
+
+  const searchQueries = newsQueries;
 
   const batches = await Promise.allSettled([
     ...queries.map(x => fetchGoogleSearch(x, "th", "TH", "TH:th")),
@@ -343,7 +367,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(
     {
       query: q,
-      count: items.length,
+      count: items.length, triedSources: newsQueries,
       items,
       note: items.length
         ? "โหลดข่าวสำเร็จ พร้อม fallback หลายชั้น"
