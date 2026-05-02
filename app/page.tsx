@@ -73,6 +73,9 @@ type Memory = {
   currentConcerns?: string[];
   lastInteractionTopic?: string;
   personalMemories?: { date: number; topic: string; detail: string }[];
+  country?: string;
+  location?: string;
+  userLocation?: string;
 };
 
 type ChatMsg = { role: "user" | "assistant"; text: string; ts: number };
@@ -89,7 +92,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.6-fix-news-queries-name";
+const APP_VERSION = "v6.3.7-fix-memory-country-fields";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
