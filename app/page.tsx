@@ -89,10 +89,11 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-full-audited-stable";
+const APP_VERSION = "v6.3.1-never-return-setup-fix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
+const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
 const CHAT_KEY = "nongnam_v4_chat";
 const READING_KEY = "nongnam_v4_reading_session";
 const OWNER_PIN = "2468";
@@ -341,7 +342,8 @@ export default function Page() {
     }
 
     const saved = loadJSON<Memory | null>(MEMORY_KEY, null);
-    if (saved && saved.setupDone === true) {
+    const setupFlag = localStorage.getItem(SETUP_DONE_FLAG) === "1";
+    if (saved && (saved.setupDone === true || setupFlag)) {
       const merged = {
         ...defaultMem,
         ...saved,
@@ -376,9 +378,16 @@ export default function Page() {
 
   // hard setup guard
   useEffect(() => {
-    if (ready && screen === "chat" && mem.setupDone !== true) {
-      setScreen("welcome");
+    if (!ready || screen !== "chat") return;
+
+    const setupFlag = localStorage.getItem(SETUP_DONE_FLAG) === "1";
+    if (mem.setupDone !== true && setupFlag) {
+      updateMem({ setupDone: true });
+      return;
     }
+
+    // ห้ามเด้งกลับหน้า setup จากหน้าแชทเพราะคำถามทั่วไป
+    // จะกลับไปหน้า setup ได้เฉพาะ resetIdentityAndMemory() ที่ลบ SETUP_DONE_FLAG เท่านั้น
   }, [ready, screen, mem.setupDone]);
 
 // PWA Install handling
@@ -726,6 +735,7 @@ export default function Page() {
   }
 
   function finishSetup() {
+    try { localStorage.setItem(SETUP_DONE_FLAG, "1"); } catch {}
     const first = mem.gender === "female" ? "f_001" : "m_001";
     updateMem({ setupDone: true, selectedOutfit: mem.selectedOutfit || first,
       purchasedOutfits: Array.from(new Set([...(mem.purchasedOutfits || []), first])),
@@ -877,6 +887,7 @@ export default function Page() {
         if (k && /nongnam|nong_nam|nam_ai|companion|wardrobe|story_memory|user_preferences/i.test(k)) keys.push(k);
       }
       keys.forEach(k => localStorage.removeItem(k));
+      localStorage.removeItem(SETUP_DONE_FLAG);
     } catch {}
   }
 
@@ -905,6 +916,7 @@ export default function Page() {
       clearNongnamLocalData();
       sessionStorage.clear();
       localStorage.setItem("nongnam_force_setup_v1", "1");
+      localStorage.removeItem(SETUP_DONE_FLAG);
       localStorage.removeItem(MEMORY_KEY);
       localStorage.removeItem(CHAT_KEY);
       localStorage.removeItem(READING_KEY);
