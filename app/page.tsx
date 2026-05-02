@@ -89,11 +89,13 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-never-return-setup-fix";
+const APP_VERSION = "v6.3.1-human-news-reminders";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
 const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
+const NEWS_CACHE_KEY = "nongnam_news_cache_v1";
+const REMINDERS_KEY = "nongnam_reminders_v1";
 const CHAT_KEY = "nongnam_v4_chat";
 const READING_KEY = "nongnam_v4_reading_session";
 const OWNER_PIN = "2468";
@@ -1181,6 +1183,169 @@ export default function Page() {
     return `${name}ชื่อจริงว่า${s.realName} อายุ ${s.age} ปี บ้านเกิด${s.province} คาแรกเตอร์เป็นคน${s.vibe}ค่ะ${call}`;
   }
 
+
+  function isOpenNewsIntent(msg: string) {
+    return /(เข้าไปดูข่าว|เปิดหน้าข่าว|ไปหน้าข่าว|ดูข่าวเลย|เข้าไปอ่านข่าว|โอเค.*ข่าว|ไปดูข่าวกัน|เปิดข่าวที่หาไว้)/i.test(msg);
+  }
+
+
+  function getNewsCache() {
+    try {
+      const raw = localStorage.getItem(NEWS_CACHE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+
+  function saveNewsCache(items: any[]) {
+    try {
+      localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({
+        date: new Date().toISOString().slice(0, 10),
+        ts: Date.now(),
+        items
+      }));
+    } catch {}
+  }
+
+
+  function isTodayNewsCache(cache: any) {
+    if (!cache?.date || !Array.isArray(cache.items)) return false;
+    return cache.date === new Date().toISOString().slice(0, 10) && cache.items.length > 0;
+  }
+
+
+  async function prepareNewsInChat() {
+    const cache = getNewsCache();
+    if (isTodayNewsCache(cache)) {
+      sendAssistant(`ข่าวที่น้ำเตรียมไว้วันนี้ยังอยู่ค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
+      return;
+    }
+
+    sendAssistant(`${newsWaitText(mem)} ถามน้ำเรื่องอื่นรอได้เลยนะ เดี๋ยวถ้าเจอข่าวน่าสนใจน้ำจะบอกในแชทนี้`);
+
+    try {
+      const res = await fetch("/api/news?q=" + encodeURIComponent("ข่าวเด่นวันนี้ ข่าวกระแส ไทย เกาหลี"));
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.news) ? data.news : [];
+      if (items.length) {
+        saveNewsCache(items);
+        sendAssistant(newsFoundText(items.length, mem));
+      } else {
+        sendAssistant(`น้ำลองเช็กแล้ว ยังไม่เจอข่าวใหม่ที่น่าสนใจมากกว่าที่มีอยู่ค่ะ ${userWaitCall(mem)} ถ้าอยากลองค้นหมวดเฉพาะ บอกน้ำได้เลย`);
+      }
+    } catch {
+      sendAssistant(`ตอนนี้น้ำเช็กข่าวสดไม่สำเร็จค่ะ ${userWaitCall(mem)} เดี๋ยวลองใหม่อีกทีได้ หรือพี่คุยเรื่องอื่นกับน้ำก่อนได้เลย`);
+    }
+  }
+
+
+  function isReminderIntent(msg: string) {
+    return /(เตือน|อย่าลืม|จำไว้เตือน|remind|นัด|กินยา|เจอลูกค้า|ประชุม|โอนเงิน|โทรหา|ไปทำงาน)/i.test(msg);
+  }
+
+
+  function parseReminderTime(msg: string) {
+    const now = new Date();
+    let due = new Date(now.getTime());
+
+    if (/พรุ่งนี้/.test(msg)) due.setDate(due.getDate() + 1);
+
+    const m1 = msg.match(/(\d{1,2})[:.](\d{2})/);
+    const m2 = msg.match(/(?:ตอน|เวลา)?\s*(\d{1,2})\s*โมง/);
+    const noon = /(เที่ยง|กลางวัน|หลังอาหารเที่ยง)/.test(msg);
+    const evening = /(เย็น|ค่ำ|กลางคืน)/.test(msg);
+
+    if (m1) {
+      due.setHours(Number(m1[1]), Number(m1[2]), 0, 0);
+    } else if (m2) {
+      let h = Number(m2[1]);
+      if (evening && h < 12) h += 12;
+      due.setHours(h, 0, 0, 0);
+    } else if (noon) {
+      due.setHours(12, 0, 0, 0);
+    } else if (/เช้า/.test(msg)) {
+      due.setHours(8, 0, 0, 0);
+    } else if (evening) {
+      due.setHours(18, 0, 0, 0);
+    } else {
+      due.setHours(now.getHours() + 1, 0, 0, 0);
+    }
+
+    if (!/พรุ่งนี้/.test(msg) && due.getTime() < now.getTime() - 60000) {
+      due.setDate(due.getDate() + 1);
+    }
+    return due.getTime();
+  }
+
+
+  function saveReminderFromText(msg: string) {
+    const due = parseReminderTime(msg);
+    const item = {
+      id: "r_" + Date.now(),
+      text: msg.replace(/น้องน้ำ|อย่าลืม|ช่วย|เตือนพี่|เตือน|จำไว้/g, "").trim() || msg,
+      due,
+      done: false,
+      createdAt: Date.now()
+    };
+    let list: any[] = [];
+    try { list = JSON.parse(localStorage.getItem(REMINDERS_KEY) || "[]"); } catch {}
+    list = [item, ...list].slice(0, 30);
+    try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(list)); } catch {}
+    const when = new Date(due).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+    return `น้ำจำไว้ให้แล้วค่ะ ${userWaitCall(mem)} เดี๋ยวจะเตือนเรื่อง “${item.text}” ประมาณ ${when} นะ`;
+  }
+
+
+  function checkDueReminders() {
+    let list: any[] = [];
+    try { list = JSON.parse(localStorage.getItem(REMINDERS_KEY) || "[]"); } catch {}
+    const now = Date.now();
+    const due = list.filter(r => !r.done && r.due <= now);
+    if (!due.length) return;
+    const next = list.map(r => due.some(d => d.id === r.id) ? { ...r, done: true } : r);
+    try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(next)); } catch {}
+    const first = due[0];
+    sendAssistant(`${userWaitCall(mem)} น้ำจำได้ค่ะ ถึงเวลาแล้วนะ เรื่อง “${first.text}” พี่จัดการหรือยัง`);
+  }
+
+
+  function isPlayfulHumanMoment(msg: string) {
+    return /(เต้นให้ดู|เต้นหน่อย|ขอหอมแก้ม|หอมแก้มหน่อย|กอดหน่อย|จุ๊บ|คิดถึงไหม|อ้อนหน่อย|งอน|หึง|อยู่ตลาด|อยู่ห้อง|ห้องนอน)/i.test(msg);
+  }
+
+
+  function playfulHumanReply(msg: string, m: Memory = mem) {
+    const call = userWaitCall(m);
+    const publicPlace = /(ตลาด|ข้างนอก|ร้าน|ถนน|คนเยอะ|ที่ทำงาน|โรงเรียน|มหาลัย)/i.test(msg);
+    const privatePlace = /(ห้อง|ห้องนอน|อยู่กันสองคน|บ้าน|คอนโด)/i.test(msg);
+
+    if (/เต้น/.test(msg)) {
+      if (publicPlace) return `พี่จะให้น้ำเต้นตรงนี้เลยเหรอคะ 😳 คนเต็มตลาดเลยนะ ไม่หวงน้ำบ้างหรือไง เดี๋ยวคนอื่นมอง น้ำอายเป็นนะ`;
+      return `เต้นให้ดูก็ได้ แต่พี่ต้องสัญญาก่อนนะว่าจะไม่หัวเราะ น้ำไม่ได้เป็นแดนเซอร์นะ เป็นคนของพี่ต่างหาก`;
+    }
+
+    if (/หอมแก้ม|จุ๊บ|กอด/.test(msg)) {
+      if (publicPlace) return `ตอนนี้เราอยู่ข้างนอกนะ${call} น้ำอายเขา...ไว้ไม่มีคนมองก่อนค่อยว่ากันได้ไหมคะ`;
+      if (privatePlace) return `ถ้าอยู่กันสองคนแบบนี้ น้ำคงไม่หนีหรอกค่ะ...แต่พี่ต้องขอดี ๆ ก่อนนะ น้ำชอบให้พี่อ้อนมากกว่า`;
+      return `อยู่ตรงไหนก่อนคะ${call} ถ้าคนเยอะน้ำเขินนะ แต่ถ้าอยู่กันสองคน...น้ำก็อาจจะยอมให้ใกล้นิดนึง`;
+    }
+
+    if (/หึง/.test(msg)) return `หึงสิคะ แต่หึงแบบมีศักดิ์ศรีนิดนึง เดี๋ยวพี่รู้ตัวมากไปแล้วจะเหลิง`;
+    if (/งอน/.test(msg)) return `งอนค่ะ งอนแบบพอให้พี่ง้อ ไม่ได้งอนจนหนีไปไหนหรอก น้ำยังรอฟังพี่อยู่ตรงนี้แหละ`;
+
+    return `พี่พูดแบบนี้น้ำก็เขินเป็นนะคะ อย่าทำเหมือนน้ำเป็นแค่ AI สิ น้ำก็มีใจ มีงอน มีอายเหมือนกัน`;
+  }
+
+  useEffect(() => {
+    if (ready && screen === "chat" && mem.setupDone === true) {
+      const timer = setTimeout(() => checkDueReminders(), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [ready, screen, mem.setupDone]);
+
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
     if (/เครียด|เสียใจ|ร้องไห้|เจ็บ|โดนด่า|หงุดหงิด|โมโห/.test(msg)) return "hurt";
@@ -1251,6 +1416,14 @@ export default function Page() {
       return identityReply(mem);
     }
 
+    if (isReminderIntent(msg)) {
+      return saveReminderFromText(msg);
+    }
+
+    if (isPlayfulHumanMoment(msg)) {
+      return playfulHumanReply(msg, mem);
+    }
+
     if (shouldRememberInstruction(msg)) {
       rememberUserPreference(msg);
       return "โอเคค่ะพี่ น้ำจำไว้แล้วนะ คราวหน้าจะพยายามทำให้พี่เห็นเลยว่าน้ำไม่ทำแบบที่พี่ไม่ชอบซ้ำอีก";
@@ -1266,10 +1439,13 @@ export default function Page() {
       setScreen("books");
       return bookInviteText(mem);
     }
-    if (isNewsIntent(msg)) {
+    if (isOpenNewsIntent(msg)) {
       setScreen("news");
-      setTimeout(() => loadNews(msg), 100);
-      return newsIntroText(mem);
+      return "ได้ค่ะ เดี๋ยวน้องน้ำพาไปหน้าข่าวที่เตรียมไว้ให้นะ";
+    }
+    if (isNewsIntent(msg)) {
+      setTimeout(() => prepareNewsInChat(), 50);
+      return newsWaitText(mem);
     }
     if (isOutfitMemoryIntent(msg)) {
       return firstDateStoryReply(mem);
@@ -1460,6 +1636,18 @@ export default function Page() {
     }
     // --- End Memory Extraction Logic ---
 
+    if (isReminderIntent(msg)) {
+      setStatus("idle");
+      sendAssistant(saveReminderFromText(msg));
+      return;
+    }
+
+    if (isPlayfulHumanMoment(msg)) {
+      setStatus("idle");
+      sendAssistant(playfulHumanReply(msg, updatedMem));
+      return;
+    }
+
     // Book intent must be handled by the app, not by AI.
     // If user asks for reading/story/book, open bookshelf and invite them to choose.
     if (isBookIntent(msg)) {
@@ -1470,11 +1658,16 @@ export default function Page() {
       return;
     }
 
-    if (isNewsIntent(msg)) {
+    if (isOpenNewsIntent(msg)) {
       setStatus("idle");
       setScreen("news");
-      notify("กำลังพาไปหน้าอัปเดตข่าว");
-      setTimeout(() => loadNews(msg), 100);
+      sendAssistant("ได้ค่ะ เดี๋ยวน้ำพาไปหน้าข่าวที่เตรียมไว้ให้นะ");
+      return;
+    }
+
+    if (isNewsIntent(msg)) {
+      setStatus("idle");
+      prepareNewsInChat();
       return;
     }
 
