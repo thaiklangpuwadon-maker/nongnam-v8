@@ -92,12 +92,21 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.7-fix-memory-country-fields";
+const APP_VERSION = "v6.3.8-full-build-guard-todaykey";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
 const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
 const NEWS_CACHE_KEY = "nongnam_news_cache_v2_thai_only";
+
+
+function todayKey() {
+  try {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
 
 const PENDING_ACTION_KEY = "nongnam_pending_action_v1";
 const FICTION_MEMORY_KEY = "nongnam_fiction_memory_v1";
