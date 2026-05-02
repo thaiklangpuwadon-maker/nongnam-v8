@@ -13,6 +13,57 @@ type NewsItem = {
   ageDays: number;
 };
 
+
+function isThaiText(s: string) {
+  return /[\u0E00-\u0E7F]/.test(s || "");
+}
+
+function isMostlyNonThai(s: string) {
+  const text = (s || "").trim();
+  if (!text) return true;
+  const thai = (text.match(/[\u0E00-\u0E7F]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const cjk = (text.match(/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/g) || []).length;
+  const cyr = (text.match(/[\u0400-\u04FF]/g) || []).length;
+  // Allow English only when domain is Thai source handled elsewhere, otherwise prefer Thai headlines.
+  return thai < 4 && (cjk + cyr > 0 || latin > thai * 4);
+}
+
+function isAllowedThaiNewsDomain(domain: string) {
+  return /(thairath|dailynews|khaosod|matichon|pptvhd36|springnews|nationtv|workpointtoday|thaipbs|bangkokbiznews|mgronline|komchadluek|posttoday|amarintv|ch7|tna|mcot|sanook|kapook|line\.me|thestandard|today\.line)/i.test(domain || "");
+}
+
+function normalizeDateLabel(raw: any) {
+  if (!raw) return "ไม่ระบุเวลาอัปเดต";
+  try {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" });
+    }
+  } catch {}
+  return String(raw).slice(0, 80);
+}
+
+function cleanThaiNewsItems(items: NewsItem[]) {
+  const cleaned: NewsItem[] = [];
+  for (const item of items || []) {
+    const domain = String((item as any).source || (item as any).domain || (item as any).url || "");
+    const title = String((item as any).title || "");
+    const summary = String((item as any).summary || (item as any).snippet || "");
+
+    const allowedThai = isAllowedThaiNewsDomain(domain);
+    const hasThai = isThaiText(title) || isThaiText(summary);
+
+    if (!allowedThai && !hasThai) continue;
+    if (!allowedThai && isMostlyNonThai(title + " " + summary)) continue;
+
+    (item as any).updatedAtText = normalizeDateLabel((item as any).publishedAt || (item as any).pubDate || (item as any).date || (item as any).published || (item as any).updatedAt);
+    cleaned.push(item);
+  }
+  return cleaned;
+}
+
+
 function decodeHtml(input = "") {
   return input
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
@@ -244,7 +295,7 @@ function uniqueItems(items: NewsItem[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV";
+  const q = req.nextUrl.searchParams.get("q") || "site:thairath.co.th OR site:dailynews.co.th OR site:khaosod.co.th OR site:matichon.co.th OR site:pptvhd36.com ข่าวเด่นวันนี้";
 
   const queries = [
     q,
@@ -257,7 +308,7 @@ export async function GET(req: NextRequest) {
     "เศรษฐกิจ ค่าครองชีพ ค่าเงิน วันนี้",
     "แรงงานไทย เกาหลี ข่าว",
     "แรงงานต่างชาติ เกาหลีใต้ วีซ่า",
-    "South Korea top news today"
+    "ข่าวเด่นวันนี้ ไทย"
   ];
 
   const batches = await Promise.allSettled([

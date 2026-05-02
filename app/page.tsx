@@ -19,7 +19,7 @@ type BookItem = {
 
 type NewsItem = {
   title: string;
-  source: string;
+  source: string; updatedAtText?: string;
   link: string;
   published: string;
   summary: string;
@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-fix-setnews-error";
+const APP_VERSION = "v6.3.1-news-thai-reminder-fix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -1125,7 +1125,7 @@ try {
   function newsFoundText(count: number, m: Memory = mem) {
     const call = userWaitCall(m);
     const name = m.nongnamName || "น้องน้ำ";
-    return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`;
+    return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคบอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`;
   }
 
 
@@ -1159,7 +1159,7 @@ try {
 
 
   function isOpenNewsIntent(msg: string) {
-    return /(เข้าไปดูข่าว|เปิดหน้าข่าว|ไปหน้าข่าว|ดูข่าวเลย|เข้าไปอ่านข่าว|โอเค.*ข่าว|ไปดูข่าวกัน|เปิดข่าวที่หาไว้)/i.test(msg);
+    return /(เข้าไปดูข่าว|เปิดหน้าข่าว|ไปหน้าข่าว|ดูข่าวเลย|เข้าไปอ่านข่าว|ไปดูข่าวกัน|เปิดข่าวที่หาไว้|โอเค.*(เข้า|ดู|ไป).*ข่าว|โอเคเข้าไปได้เลย|เข้าไปได้เลย|ไปเลย|ดูเลย|เปิดเลย|เอาเลย|ได้เลย|ไปดูเลย)/i.test(msg);
   }
 
 
@@ -1195,7 +1195,7 @@ try {
     const cache = getNewsCache();
 
     if (isTodayNewsCache(cache)) {
-      sendAssistant(`น้ำมีข่าวเด่นวันนี้ที่เตรียมไว้แล้วค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
+      sendAssistant(`น้ำมีข่าวเด่นวันนี้ที่เตรียมไว้แล้วค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคบอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`);
       return;
     }
 
@@ -1209,7 +1209,7 @@ try {
       if (items.length) {
         saveNewsCache(items);
         try { window.dispatchEvent(new CustomEvent("nongnam-news-cache-updated")); } catch {}
-        sendAssistant(`ข่าวพร้อมแล้วค่ะ ${userWaitCall(mem)} น้ำเตรียมข่าวเด่นวันนี้ไว้ให้ ${items.length} เรื่อง จะเข้าไปดูหน้าข่าวเลยไหมคะ พิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
+        sendAssistant(`ข่าวพร้อมแล้วค่ะ ${userWaitCall(mem)} น้ำเตรียมข่าวเด่นวันนี้ไว้ให้ ${items.length} เรื่อง จะเข้าไปดูหน้าข่าวเลยไหมคะ บอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`);
         return;
       }
 
@@ -1224,6 +1224,15 @@ try {
     return /(เตือน|อย่าลืม|จำไว้เตือน|remind|นัด|กินยา|เจอลูกค้า|ประชุม|โอนเงิน|โทรหา|ไปทำงาน)/i.test(msg);
   }
 
+
+
+  function hasExplicitReminderTime(msg: string) {
+    return /(\d{1,2})[:.](\d{2})|(?:ตอน|เวลา)?\s*(\d{1,2})\s*โมง|เที่ยง|กลางวัน|หลังอาหารเที่ยง|เช้า|เย็น|ค่ำ|กลางคืน/i.test(msg);
+  }
+
+  function reminderNeedsTimeClarification(msg: string) {
+    return isReminderIntent(msg) && /(พรุ่งนี้|วันนี้|มะรืน|วันจันทร์|วันอังคาร|วันพุธ|วันพฤหัส|วันศุกร์|วันเสาร์|วันอาทิตย์)/i.test(msg) && !hasExplicitReminderTime(msg);
+  }
 
   function parseReminderTime(msg: string) {
     const now = new Date();
@@ -1260,6 +1269,9 @@ try {
 
 
   function saveReminderFromText(msg: string) {
+    if (reminderNeedsTimeClarification(msg)) {
+      return `น้ำจำเรื่องนี้ไว้ก่อนค่ะ ${userWaitCall(mem)} แต่พี่ยังไม่ได้บอกเวลา ให้เตือนกี่โมงดีคะ`;
+    }
     const due = parseReminderTime(msg);
     const item = {
       id: "r_" + Date.now(),
@@ -2638,7 +2650,7 @@ try {
           <div className="list newsScreen">
             <button className="back" onClick={()=>setScreen("chat")}>←</button>
             <h1>ข่าววันนี้</h1>
-            <p>{mem.userCallName} ข่าวแรงงานไทย/คนไทยในเกาหลีจะถูกดันขึ้นก่อน ส่วนข่าวกระแสจะคัดมาเท่าที่น่าสนใจ กด “สรุปข่าวนี้” เพื่อให้น้องน้ำเล่าสั้น ๆ ได้เลย</p>
+            <p>{mem.userCallName} ข่าวเด่นภาษาไทยจะขึ้นก่อน ส่วนข่าวกระแสจะคัดมาเท่าที่น่าสนใจ กด “สรุปข่าวนี้” เพื่อให้น้องน้ำเล่าสั้น ๆ ได้เลย</p>
             <div className="readerSpeed newsTabs">
               <span>เลือกหมวด</span>
               <button className="on" onClick={()=>loadNews("ข่าวเด่น เกาหลีใต้ แรงงานไทย คนไทยในเกาหลี")}>ข่าวเด่นวันนี้</button>
@@ -2652,7 +2664,7 @@ try {
                 <div className="newsItem" key={`${n.link}-${i}`}>
                   <div className="newsNumber">{i+1}</div>
                   <div className="newsBody">
-                    <div className="newsMeta"><span>{n.category}</span><b>{n.source}</b></div>
+                    <div className="newsMeta"><span>{n.category}</span><b>{n.source}{n.updatedAtText ? ` · ${n.updatedAtText}` : ''}</b></div>
                     <h3>{n.title}</h3>
                     <p>{n.summary}</p>
                     <div className="newsFooter">{n.published || "แตะปุ่มเพื่อสรุปหรือเปิดต้นฉบับ"}</div>
