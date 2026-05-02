@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-books-news-context-fix";
+const APP_VERSION = "v6.3.1-books-news-cleanfix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -669,7 +669,7 @@ export default function Page() {
 
       if (found.length) {
         setTimeout(() => {
-          sendAssistant(newsFoundText(found.length, mem));
+          sendAssistant(`เจอข่าวน่าสนใจ ${found.length} เรื่อง${polite}${mem.userCallName} กดสรุปข่าวที่สนใจได้เลย`);
         }, 350);
       } else {
         console.warn("No news returned after fallback", lastNote);
@@ -1111,11 +1111,11 @@ export default function Page() {
     const tone = relationshipTone(m);
     const call = userWaitCall(m);
     const name = m.nongnamName || "น้องน้ำ";
-    if (tone === "spouse_husband") return `แป๊บนะจ๊ะ${call} เดี๋ยวเมียลองหาข่าวเด่นวันนี้ให้ก่อน`;
-    if (tone === "spouse_wife") return `แป๊บนะจ๊ะ${call} เดี๋ยว${name}หาให้ก่อนนะ`;
-    if (tone === "lover") return `แป๊บนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นวันนี้ให้`;
-    if (tone === "advisor") return `รอสักครู่นะคะ${call} เดี๋ยว${name}ตรวจข่าวเด่นวันนี้ให้ก่อน`;
-    return `แป๊บหนึ่งนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นวันนี้ให้ก่อน`;
+    if (tone === "spouse_husband") return `แป๊บนะจ๊ะ${call} เดี๋ยวเมียลองหาข่าวน่าสนใจให้ก่อน ระหว่างนี้คุยเรื่องอื่นรอได้นะ`;
+    if (tone === "spouse_wife") return `แป๊บนะจ๊ะ${call} เดี๋ยว${name}หาให้ก่อน ระหว่างนี้คุยเรื่องอื่นรอได้นะ`;
+    if (tone === "lover") return `แป๊บนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นให้ ระหว่างนี้คุยกับ${name}รอก่อนได้เลย`;
+    if (tone === "advisor") return `รอสักครู่นะคะ${call} เดี๋ยว${name}ตรวจข่าวเด่นให้ก่อน ระหว่างนี้ถามเรื่องอื่นต่อได้เลยค่ะ`;
+    return `แป๊บหนึ่งนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นให้ก่อน ระหว่างนี้คุยเรื่องอื่นรอได้เลย`;
   }
 
   function newsFoundText(count: number, m: Memory = mem) {
@@ -1124,15 +1124,7 @@ export default function Page() {
     return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`;
   }
 
-  function isBookIntent(msg: string) {
-    return /(อ่านหนังสือ|อ่านนิทาน|เล่านิทาน|อ่านก่อนนอน|อ่านให้ฟัง|อ่านคำศัพท์|ท่องศัพท์|หนังสือให้ฟัง|เปิดหนังสือ|หมวดหนังสือ|อยากฟังหนังสือ|เล่าเรื่องให้ฟัง)/i.test(msg);
-  }
 
-  function bookInviteText(m: Memory = mem) {
-    const call = m.userCallName || "พี่";
-    const name = m.nongnamName || "น้องน้ำ";
-    return `${call} อยากให้${name}อ่านแนวไหนดีคะ เลือกจากหน้าหนังสือได้เลย มีแนวก่อนนอน คำศัพท์ เรื่องเล่า และหมวดพิเศษ ถ้าเป็นคำศัพท์/ก่อนนอนน้ำตั้งใจให้อ่านสบาย ๆ ไม่ต้องรีบเสียเพชรค่ะ`;
-  }
 
 
   function detectUserMood(msg: string) {
