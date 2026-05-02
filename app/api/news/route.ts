@@ -25,7 +25,7 @@ function hasForeignScript(s: string) {
 }
 
 function isAllowedThaiNewsDomain(domain: string) {
-  return /(morning-news|morningnewstv3|ch3plus|ch3thailand|thairath|dailynews|khaosod|matichon|pptvhd36|springnews|nationtv|workpointtoday|thaipbs|bangkokbiznews|mgronline|komchadluek|posttoday|amarintv|ch7|tna|mcot|sanook|kapook|thestandard|today\.line)/i.test(domain || "");
+  return /(bbc|morning-news|morningnewstv3|ch3plus|ch3thailand|thairath|dailynews|khaosod|matichon|pptvhd36|springnews|nationtv|workpointtoday|thaipbs|bangkokbiznews|mgronline|komchadluek|posttoday|amarintv|ch7|tna|mcot|sanook|kapook|thestandard|today\.line)/i.test(domain || "");
 }
 
 function normalizeDateLabel(raw: any) {
@@ -293,7 +293,7 @@ function uniqueItems(items: NewsItem[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV";
+  const q = req.nextUrl.searchParams.get("q") || "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ BBC ไทย ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV Thai PBS";
 
   const queries = [
     q,

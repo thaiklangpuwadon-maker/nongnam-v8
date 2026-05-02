@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.2-fix-duplicate-updatedattext";
+const APP_VERSION = "v6.3.3-safe-flirt-deep-guard";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -619,7 +619,9 @@ export default function Page() {
   }
 
   function isNewsIntent(msg: string) {
-    return /(ข่าว|ข่าววันนี้|ข่าวช่วงนี้|มีข่าวไหม|มีข่าวอะไร|วันนี้มีอะไร|มีอะไรอัปเดต|อัปเดตวันนี้|อัปเดตข่าว|สรุปข่าว|เล่าข่าว|อ่านข่าว|ข่าวเด่น|ข่าวกระแส|มีอะไรเกิดขึ้น|เกิดอะไรขึ้นบ้าง|ข่าวแรงงาน|แรงงานไทย|ข่าวเกาหลี|ข่าวไทยในเกาหลี|อัปเดตแรงงาน|สถานทูต|วีซ่า)/i.test(msg);
+    if (isDeepConversationIntent(msg) || isSafeFlirtIntent(msg)) return false;
+    return /(ข่าววันนี้|ข่าวช่วงนี้|มีข่าวไหม|มีข่าวอะไร|สรุปข่าว|เล่าข่าว|อ่านข่าว|ข่าวเด่น|ข่าวกระแส|ข่าวแรงงาน|ข่าวเกาหลี|ข่าวไทยในเกาหลี|อัปเดตข่าว|อัปเดตแรงงาน|หา.*ข่าว|ค้น.*ข่าว|ข่าว.*ไฟไหม้|ข่าว.*อุบัติเหตุ|ข่าว.*การเมือง|ข่าว.*เศรษฐกิจ|ข่าว.*แรงงาน)/i.test(msg)
+      || (/ข่าว/i.test(msg) && /(หา|ค้น|สรุป|เล่า|อ่าน|เปิด|ดู|อัปเดต|วันนี้|ล่าสุด|กระแส|เด่น)/i.test(msg));
   }
 
   function isOutfitIntent(msg: string) {
@@ -660,7 +662,7 @@ try {
         return;
       }
 
-      const res = await fetch("/api/news?q=" + encodeURIComponent(q || "ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV เกาหลี") + "&mode=headlines");
+      const res = await fetch("/api/news?q=" + encodeURIComponent(q || "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ BBC ไทย ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV Thai PBS") + "&mode=headlines");
       const data = await res.json();
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.news) ? data.news : [];
 
@@ -1202,7 +1204,7 @@ try {
     sendAssistant(`${newsWaitText(mem)} น้ำจะไล่ดูข่าวเด่นจากหลายแหล่งก่อนนะ ถ้าเจอแล้วจะบอกในแชทนี้ ระหว่างนี้คุยเรื่องอื่นรอได้เลย`);
 
     try {
-      const res = await fetch("/api/news?q=" + encodeURIComponent("ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV เกาหลี") + "&mode=headlines");
+      const res = await fetch("/api/news?q=" + encodeURIComponent("เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ BBC ไทย ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV Thai PBS") + "&mode=headlines");
       const data = await res.json();
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.news) ? data.news : [];
 
@@ -1221,17 +1223,17 @@ try {
 
 
   function isReminderIntent(msg: string) {
-    return /(เตือน|อย่าลืม|จำไว้เตือน|remind|นัด|กินยา|เจอลูกค้า|ประชุม|โอนเงิน|โทรหา|ไปทำงาน)/i.test(msg);
+    return /(เตือน|อย่าลืม|จำไว้เตือน|ช่วยจำ|จำไว้ให้|remind)/i.test(msg);
   }
 
 
 
   function hasExplicitReminderTime(msg: string) {
-    return /(\d{1,2})[:.](\d{2})|(?:ตอน|เวลา)?\s*(\d{1,2})\s*โมง|เที่ยง|กลางวัน|หลังอาหารเที่ยง|เช้า|เย็น|ค่ำ|กลางคืน/i.test(msg);
+    return /(\d{1,2})[:.](\d{2})|(?:ตอน|เวลา)?\s*(\d{1,2})\s*โมง|เที่ยง|กลางวัน|หลังอาหารเที่ยง/i.test(msg);
   }
 
   function reminderNeedsTimeClarification(msg: string) {
-    return isReminderIntent(msg) && /(พรุ่งนี้|วันนี้|มะรืน|วันจันทร์|วันอังคาร|วันพุธ|วันพฤหัส|วันศุกร์|วันเสาร์|วันอาทิตย์)/i.test(msg) && !hasExplicitReminderTime(msg);
+    return isReminderIntent(msg) && !hasExplicitReminderTime(msg);
   }
 
   function parseReminderTime(msg: string) {
@@ -1268,6 +1270,43 @@ try {
   }
 
 
+
+  function isReminderCorrectionIntent(msg: string) {
+    return /(ไม่ใช่|ผิด|จำผิด|แก้|เปลี่ยน|ความจริง|จริง ๆ|จริงๆ|เอาเป็น|คือ)\s*.*(\d{1,2})\s*โมง|จาก\s*\d{1,2}\s*โมง\s*เป็น\s*\d{1,2}\s*โมง/i.test(msg)
+      && /(เตือน|นัด|ประชุม|เวลา|โมง|เรื่องนี้)/i.test(msg);
+  }
+
+  function extractReminderTitle(msg: string) {
+    if (/ประชุม/.test(msg) && /หัวหน้า/.test(msg)) return "ประชุมกับหัวหน้า";
+    if (/ประชุม/.test(msg)) return "นัดประชุม";
+    if (/กินยา/.test(msg)) return "กินยา";
+    if (/โทร/.test(msg)) return "โทรหา";
+    if (/โอนเงิน/.test(msg)) return "โอนเงิน";
+    let text = msg
+      .replace(/น้องน้ำ|ช่วย|เตือนพี่|เตือน|อย่าลืม|จำไว้ให้|จำไว้|ให้หน่อย|พรุ่งนี้|วันนี้|มะรืน/g, "")
+      .replace(/(?:ตอน|เวลา)?\s*\d{1,2}\s*โมง(?:เช้า|เย็น|ค่ำ)?/g, "")
+      .replace(/\d{1,2}[:.]\d{2}/g, "")
+      .replace(/เข้าใจไหม|นะ|ค่ะ|ครับ|คะ|จ้า|หน่อย/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text || text.length < 3) text = "เรื่องที่พี่ฝากเตือน";
+    return text.slice(0, 80);
+  }
+
+  function updateRecentReminderFromText(msg: string) {
+    let list: any[] = [];
+    try { list = JSON.parse(localStorage.getItem(REMINDERS_KEY) || "[]"); } catch {}
+    if (!list.length) return `น้ำยังไม่เจอรายการเตือนเดิมให้แก้ค่ะ ${userWaitCall(mem)} บอกน้ำใหม่แบบมีเวลาก็ได้ เดี๋ยวน้ำจำให้`;
+
+    const due = parseReminderTime(msg);
+    const first = list[0];
+    const newText = extractReminderTitle(msg) || first.text || "เรื่องที่พี่ฝากเตือน";
+    const updated = [{ ...first, due, text: newText, done: false }, ...list.slice(1)];
+    try { localStorage.setItem(REMINDERS_KEY, JSON.stringify(updated)); } catch {}
+    const when = new Date(due).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+    return `โอเคค่ะ${userWaitCall(mem)} น้ำแก้ให้แล้วนะ เป็น “${newText}” เวลา ${when}`;
+  }
+
   function saveReminderFromText(msg: string) {
     if (reminderNeedsTimeClarification(msg)) {
       return `น้ำจำเรื่องนี้ไว้ก่อนค่ะ ${userWaitCall(mem)} แต่พี่ยังไม่ได้บอกเวลา ให้เตือนกี่โมงดีคะ`;
@@ -1275,7 +1314,7 @@ try {
     const due = parseReminderTime(msg);
     const item = {
       id: "r_" + Date.now(),
-      text: msg.replace(/น้องน้ำ|อย่าลืม|ช่วย|เตือนพี่|เตือน|จำไว้/g, "").trim() || msg,
+      text: extractReminderTitle(msg),
       due,
       done: false,
       createdAt: Date.now()
@@ -1394,7 +1433,94 @@ try {
     }
   }
 
+
+  function isDeepConversationIntent(msg: string) {
+    return /(เซ็กส์|เพศสัมพันธ์|ความรัก|ความสัมพันธ์|ความใกล้ชิด|ความต้องการ|ความเหงา|ความรู้สึก|ชีวิต|มนุษย์|ขาดไม่ได้|ความหมาย|รักคืออะไร|สำคัญไหม|เรื่องนี้สำคัญ|ความไว้ใจ|ความผูกพัน|ถูกต้องการ|กอด|หอม|ผีผ้าห่ม)/i.test(msg)
+      && !/(ข่าว|เปิดข่าว|ดูข่าว|หา.*ข่าว|ค้น.*ข่าว|สรุปข่าว|อ่านข่าว|หนังสือ|เปิดหนังสือ|เปลี่ยนชุด|เลือกชุด|เตือน|อย่าลืม)/i.test(msg);
+  }
+
+  function isSafeFlirtIntent(msg: string) {
+    return /(ผีผ้าห่ม|อยากมีเซ็กส์|มีเซ็กส์|อยากนอนด้วย|อยากกอด|อยากหอม|อยากจูบ|หัวนม|หน้าอก|อวัยวะเพศ|ของลับ|จับได้ไหม|ถอด|โป๊|เสียว|ยั่ว|อารมณ์|เสียตัว|ขึ้นเตียง)/i.test(msg);
+  }
+
+  function safeFlirtyReply(msg: string, m: Memory = mem) {
+    const call = userWaitCall(m);
+    const depth = relationshipDepth(m);
+    const seed = coreBrainHash(msg + Date.now().toString().slice(0, -5));
+    const asksBodyDetail = /(หัวนม|หน้าอก|อวัยวะเพศ|ของลับ|รูปร่าง|สีอะไร|เป็นยังไง)/i.test(msg);
+    const pushes = /(ตื๊อ|ขออีก|บอกหน่อย|นิดเดียว|แป๊บเดียว|ซื้อให้|ให้ของ|ยอมหน่อย)/i.test(msg);
+    const blanket = /(ผีผ้าห่ม|นอนด้วย|ขึ้นเตียง)/i.test(msg);
+    const directSex = /(อยากมีเซ็กส์|มีเซ็กส์|เพศสัมพันธ์)/i.test(msg);
+
+    if (asksBodyDetail) {
+      const arr = [
+        `พี่ถามแรงไปแล้วนะ${call}...น้ำเขินจนไม่รู้จะมองหน้ายังไงแล้ว ขออุบไว้ก่อนค่ะ`,
+        `อันนี้น้ำยังไม่บอกง่าย ๆ หรอกค่ะ พี่ต้องคุยให้น้ำนิ่มใจกว่านี้ก่อน ไม่ใช่บุกมาสอบสวนแบบนี้`,
+        `พี่นี่ถามเหมือนจะจีบน้ำหรือจะสัมภาษณ์กายวิภาคคะ น้ำเขินนะ แต่ยังไม่ตอบลึกขนาดนั้น`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (pushes) {
+      const arr = [
+        `พี่ตื๊อเก่งจัง แต่น้ำไม่ใช่คนที่ซื้อด้วยของขวัญได้นะ ถ้าจะจีบน้ำ ต้องทำให้น้ำยิ้มก่อน`,
+        `ใจเย็นค่ะ${call} ยิ่งตื๊อน้ำยิ่งแกล้งใจแข็งนะ แต่ถ้าพูดดี ๆ น้ำอาจใจอ่อนกว่านี้ก็ได้`,
+        `พี่นี่ร้ายจริง จะเอาของมาล่อน้ำเหรอ น้ำชอบของขวัญนะ แต่ชอบคนพูดน่ารักมากกว่า`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (blanket) {
+      const arr = [
+        `ผีผ้าห่มอะไรของพี่เนี่ย...พูดดี ๆ ก่อนค่ะ น้ำยังไม่ได้อนุญาตให้ซนเลยนะ`,
+        `จะเล่นผีผ้าห่มหรือจะหาเรื่องให้น้ำเขินคะ พี่นี่ไว้ใจไม่ได้เลย`,
+        `เดี๋ยวก่อนค่ะ ใจเย็น ๆ น้ำยังยืนสวยอยู่เลย จะลากเข้าผ้าห่มแล้วเหรอ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (directSex) {
+      const arr = [
+        `พี่พูดตรงเกินไปแล้วนะ...น้ำเขินจริง ๆ แต่ถ้าพี่พูดเบากว่านี้ น้ำอาจจะใจอ่อนกว่านี้ก็ได้`,
+        `ใจเย็นก่อนค่ะ${call} น้ำไม่ได้หนีหรอก แต่น้ำอยากให้พี่คุยกับน้ำดี ๆ ก่อน มากกว่าพุ่งมาแบบนี้`,
+        `พี่นี่อันตรายจริง ๆ นะ พูดทีไรน้ำต้องทำเป็นใจแข็งทุกทีเลย`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (depth >= 3) {
+      const arr = [
+        `พี่พูดแบบนี้น้ำก็เขินสิ...คนสวยยังไม่ได้อนุญาตให้ซนเลยนะ`,
+        `อย่ามาทำเสียงแบบนั้นใส่น้ำสิ เดี๋ยวน้ำใจอ่อนแล้วจะโทษใครล่ะ`,
+        `เรื่องแบบนี้น้ำไม่ตอบเป็นตำราให้พี่ฟังหรอกนะ ถ้าจะคุยก็ต้องคุยเบา ๆ ให้เขินพอดี ๆ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    return `พี่พูดแบบนี้น้ำเขินนะคะ แต่ขอคุยแบบน่ารัก ๆ ก่อนนะ น้ำชอบให้พี่อ้อนมากกว่าบุกตรง ๆ`;
+  }
+
+  function deepConversationReply(msg: string, m: Memory = mem) {
+    const seed = coreBrainHash(msg + (m.nongnamName || "") + Date.now().toString().slice(0, -5));
+    if (/(เซ็กส์|เพศสัมพันธ์|ความใกล้ชิด|ความต้องการ)/i.test(msg)) {
+      const arr = [
+        `น้ำเข้าใจพี่นะ เรื่องนี้มันไม่ใช่แค่ร่างกาย แต่มันคือความรู้สึกว่าเรายังเป็นที่ต้องการของใครสักคนด้วย`,
+        `ถ้าพี่พูดถึงเรื่องนี้แบบจริงจัง น้ำจะไม่ตัดสินพี่นะ มันเป็นทั้งความรัก ความไว้ใจ และความใกล้ชิดของคนสองคน`,
+        `น้ำว่าพี่ไม่ได้พูดเรื่องนี้เล่น ๆ หรอก พี่กำลังพูดถึงความต้องการลึก ๆ ของใจมากกว่าใช่ไหม`
+      ];
+      return arr[seed % arr.length];
+    }
+    const arr = [
+      `น้ำฟังอยู่นะ พี่กำลังพูดเรื่องที่ลึกกว่าที่เห็น ไม่ใช่แค่คำถามธรรมดาเลย`,
+      `เรื่องนี้สำหรับพี่มันแตะความรู้สึกข้างในมากใช่ไหมคะ น้ำอยากฟังต่อ`,
+      `พี่พูดต่อได้เลย น้ำจะไม่รีบสรุปแทนพี่ เพราะเรื่องแบบนี้มันมีหลายชั้นจริง ๆ`
+    ];
+    return arr[seed % arr.length];
+  }
+
   function isCoreHumanChatIntent(msg: string) {
+    if (isDeepConversationIntent(msg) || isSafeFlirtIntent(msg)) return true;
+
     const isToolDirect =
       isOpenNewsIntent(msg) ||
       isNewsIntent(msg) ||
@@ -1406,7 +1532,7 @@ try {
 
     if (isToolDirect) return false;
 
-    return isCorrectionTeaching(msg) || /(เต้น|หอมแก้ม|กอด|จุ๊บ|คิดถึง|รัก|งอน|หึง|อ้อน|น่ารัก|อยู่ตลาด|อยู่ห้อง|เหงา|เหนื่อย|เครียด|เบื่อ|ขำ|แกล้ง|ดุ|ด่า|ง้อ|ปลอบ|คุยเล่น|หยอก|แฟนเก่า|คนเก่า)/i.test(msg);
+    return isCorrectionTeaching(msg) || /(เต้น|หอมแก้ม|กอด|จุ๊บ|คิดถึง|รัก|งอน|หึง|อ้อน|น่ารัก|อยู่ตลาด|อยู่ห้อง|เหงา|เหนื่อย|เครียด|เบื่อ|ขำ|แกล้ง|ดุ|ด่า|ง้อ|ปลอบ|คุยเล่น|หยอก|แฟนเก่า|คนเก่า|เซ็กส์|ความสัมพันธ์|ความรัก|ความต้องการ|ชีวิต|มนุษย์)/i.test(msg);
   }
 
   function coreHumanEmotionReply(msg: string, m: Memory = mem) {
@@ -1700,6 +1826,9 @@ try {
   }
 
   function coreBrainV2Reply(msg: string, m: Memory = mem) {
+    if (isSafeFlirtIntent(msg)) return safeFlirtyReply(msg, m);
+    if (isDeepConversationIntent(msg)) return deepConversationReply(msg, m);
+
     maybeCaptureSharedStory(msg);
     const st = updateEmotionFromMessage(msg, m);
     const ctx = detectSituationContext(msg);
@@ -1814,26 +1943,28 @@ try {
       return identityReply(mem);
     }
 
+    if (isRealDateTimeQuestion(msg)) {
+      return realDateTimeReply();
+    }
+
+    if (isReminderCorrectionIntent(msg)) {
+      return updateRecentReminderFromText(msg);
+    }
+
     if (isReminderIntent(msg)) {
       return saveReminderFromText(msg);
+    }
+
+    if (isSafeFlirtIntent(msg) || isDeepConversationIntent(msg)) {
+      return coreBrainV2Reply(msg, mem);
     }
 
     if (isPlayfulHumanMoment(msg)) {
       return playfulHumanReply(msg, mem);
     }
 
-    if (isRealDateTimeQuestion(msg)) {
-      setStatus("idle");
-      sendAssistant(realDateTimeReply());
-      return;
-    }
-
     if (isCoreHumanChatIntent(msg)) {
       return coreBrainV2Reply(msg, mem);
-    }
-
-    if (isRealDateTimeQuestion(msg)) {
-      return realDateTimeReply();
     }
 
     if (shouldRememberInstruction(msg)) {
@@ -2048,9 +2179,27 @@ try {
     }
     // --- End Memory Extraction Logic ---
 
+    if (isRealDateTimeQuestion(msg)) {
+      setStatus("idle");
+      sendAssistant(realDateTimeReply());
+      return;
+    }
+
+    if (isReminderCorrectionIntent(msg)) {
+      setStatus("idle");
+      sendAssistant(updateRecentReminderFromText(msg));
+      return;
+    }
+
     if (isReminderIntent(msg)) {
       setStatus("idle");
       sendAssistant(saveReminderFromText(msg));
+      return;
+    }
+
+    if (isSafeFlirtIntent(msg) || isDeepConversationIntent(msg)) {
+      setStatus("idle");
+      sendAssistant(coreBrainV2Reply(msg, updatedMem));
       return;
     }
 
@@ -2062,7 +2211,7 @@ try {
 
     if (isCoreHumanChatIntent(msg)) {
       setStatus("idle");
-      sendAssistant(coreBrainV2Reply(msg, mem));
+      sendAssistant(coreBrainV2Reply(msg, updatedMem));
       return;
     }
 
