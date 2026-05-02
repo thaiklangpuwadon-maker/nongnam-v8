@@ -19,7 +19,7 @@ type BookItem = {
 
 type NewsItem = {
   title: string;
-  source: string; updatedAtText?: string; updatedAtText?: string;
+  source: string; updatedAtText?: string; 
   link: string;
   published: string;
   summary: string;
@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.2-real-data-thai-news";
+const APP_VERSION = "v6.3.2-fix-duplicate-updatedattext";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
