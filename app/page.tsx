@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-living-human-personality-fast-news";
+const APP_VERSION = "v6.3.1-persistent-identity-settings-diamonds";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -842,6 +842,199 @@ export default function Page() {
   }
 
 
+
+  function hasCompletedSetup(m: Memory = mem) {
+    return Boolean(m.nongnamName && m.userCallName && m.relationshipMode);
+  }
+
+  function getStoryMemory() {
+    try { return JSON.parse(localStorage.getItem("nongnam_story_memory_v1") || "{}"); }
+    catch { return {}; }
+  }
+
+  function saveStoryMemory(next: any) {
+    try { localStorage.setItem("nongnam_story_memory_v1", JSON.stringify(next)); } catch {}
+  }
+
+  function getUserPreferences() {
+    try { return JSON.parse(localStorage.getItem("nongnam_user_preferences_v1") || "[]"); }
+    catch { return []; }
+  }
+
+  function rememberUserPreference(text: string) {
+    const clean = text.replace(/\s+/g, " ").trim();
+    if (!clean) return;
+    const prefs = getUserPreferences();
+    const next = [clean, ...prefs.filter((x: string) => x !== clean)].slice(0, 30);
+    try { localStorage.setItem("nongnam_user_preferences_v1", JSON.stringify(next)); } catch {}
+  }
+
+  function shouldRememberInstruction(msg: string) {
+    return /(จำไว้นะ|อย่าลืม|พี่ไม่ชอบ|ไม่ชอบให้|อย่าตอบแบบนี้|พูดแบบนี้ไม่ถูก|คราวหน้าต้อง|แบบนี้ดีแล้ว|พี่ชอบให้|ทำแบบนี้นะ)/i.test(msg);
+  }
+
+  function clearChatScreenOnly() {
+    const ok = window.confirm(
+      "ล้างหน้าจอแชท?\n\nข้อความที่แสดงอยู่บนหน้าจอจะถูกซ่อนออก เพื่อความเป็นส่วนตัว\nแต่น้องน้ำยังจำตัวตน ความสัมพันธ์ และเรื่องสำคัญที่เคยคุยกันไว้เหมือนเดิม\n\nเหมาะสำหรับเวลาที่ไม่อยากให้คนอื่นเห็นข้อความเก่า"
+    );
+    if (!ok) return;
+    setChat([]);
+    notify("ล้างหน้าจอแชทแล้ว แต่ความจำยังอยู่ครบ");
+  }
+
+  function resetIdentityAndMemory() {
+    const ok = window.confirm(
+      "รีเซ็ตตัวตนน้องน้ำ?\n\nถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน และเรื่องสำคัญที่เคยบันทึกไว้\n\nหลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น\n\nยืนยันหรือไม่?"
+    );
+    if (!ok) return;
+    try {
+      localStorage.removeItem("nongnam_memory_v631");
+      localStorage.removeItem("nongnam_chat_v631");
+      localStorage.removeItem("nongnam_story_memory_v1");
+      localStorage.removeItem("nongnam_user_preferences_v1");
+      localStorage.removeItem("nongnam_adult_confirmed_at");
+      localStorage.removeItem("nongnam_used_redeem_codes_v1");
+    } catch {}
+    notify("รีเซ็ตตัวตนและความจำแล้ว");
+    setTimeout(() => location.reload(), 500);
+  }
+
+  function redeemDiamonds() {
+    const code = window.prompt("กรอกรหัสเติมเพชร\n\nช่วงทดลองใช้ได้ เช่น PILOT01-100 หรือ TOPUP-MAN-300");
+    if (!code) return;
+    const clean = code.trim().toUpperCase();
+    const table: Record<string, number> = {
+      "PILOT01-100": 100,
+      "PILOT02-100": 100,
+      "PILOT03-100": 100,
+      "PILOT04-100": 100,
+      "PILOT05-100": 100,
+      "PILOT06-100": 100,
+      "PILOT07-100": 100,
+      "PILOT08-100": 100,
+      "PILOT09-100": 100,
+      "PILOT10-100": 100,
+      "TOPUP-MAN-100": 100,
+      "TOPUP-MAN-300": 300,
+      "TOPUP-MAN-500": 500
+    };
+    const usedKey = "nongnam_used_redeem_codes_v1";
+    let used: string[] = [];
+    try { used = JSON.parse(localStorage.getItem(usedKey) || "[]"); } catch {}
+    if (used.includes(clean)) {
+      notify("รหัสนี้ถูกใช้แล้ว");
+      sendAssistant("รหัสนี้ถูกใช้ในเครื่องนี้แล้วค่ะพี่ ถ้าต้องการเติมเพิ่มให้ขอรหัสใหม่จากผู้ดูแลนะคะ");
+      return;
+    }
+    const amount = table[clean];
+    if (!amount) {
+      notify("รหัสไม่ถูกต้อง");
+      sendAssistant("รหัสเติมเพชรไม่ถูกต้องค่ะพี่ ลองตรวจตัวพิมพ์ใหญ่อีกครั้งนะ");
+      return;
+    }
+    used.push(clean);
+    try { localStorage.setItem(usedKey, JSON.stringify(used)); } catch {}
+    updateMem({ gems: mem.gems + amount });
+    notify(`เติมสำเร็จ +${amount} เพชร`);
+    sendAssistant(`เติมเพชรสำเร็จแล้วค่ะพี่ +${amount} เพชร ตอนนี้พี่มีเพชรเพิ่มไว้ใช้น้องน้ำต่อแล้วนะ`);
+  }
+
+  function ownerAdminPanel() {
+    const pin = window.prompt("ใส่รหัสผู้ดูแล");
+    if (!pin) return;
+    if (pin !== "2468") {
+      notify("รหัสผู้ดูแลไม่ถูกต้อง");
+      return;
+    }
+    const action = window.prompt(
+      "โหมดผู้ดูแล\n\nพิมพ์ตัวเลข:\n1 = เติมเพชรเครื่องนี้ +500\n2 = เปิด Owner Mode\n3 = ปิด Owner Mode\n4 = ดูข้อมูล Memory คร่าว ๆ\n5 = ล้างหน้าจอแชท"
+    );
+    if (action === "1") {
+      updateMem({ gems: mem.gems + 500 });
+      notify("Admin เติม +500 เพชรแล้ว");
+    } else if (action === "2") {
+      updateMem({ ownerMode: true });
+      notify("เปิด Owner Mode แล้ว");
+    } else if (action === "3") {
+      updateMem({ ownerMode: false });
+      notify("ปิด Owner Mode แล้ว");
+    } else if (action === "4") {
+      alert(JSON.stringify({ mem, story: getStoryMemory(), prefs: getUserPreferences() }, null, 2).slice(0, 5000));
+    } else if (action === "5") {
+      clearChatScreenOnly();
+    }
+  }
+
+  function confirmAdultGate() {
+    const last = Number(localStorage.getItem("nongnam_adult_confirmed_at") || "0");
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    if (Date.now() - last < sevenDays) return true;
+    const ok = window.confirm(
+      "เนื้อหาสำหรับผู้ใหญ่เท่านั้น\n\nหมวดนี้เหมาะสำหรับผู้ที่มีอายุ 20 ปีขึ้นไป และอาจมีเนื้อหาเชิงโรแมนติกสำหรับผู้ใหญ่\n\nหากคุณอายุต่ำกว่า 20 ปี กรุณายกเลิก\n\nยืนยันว่าคุณอายุ 20 ปีขึ้นไปหรือไม่?"
+    );
+    if (ok) localStorage.setItem("nongnam_adult_confirmed_at", String(Date.now()));
+    return ok;
+  }
+
+  function isAdultTopic(msg: string) {
+    return /(18\+|ผู้ใหญ่|อีโรติก|เซ็กซี่มาก|วาบหวิว|เร่าร้อน|คืนนี้|ห้องนอน)/i.test(msg);
+  }
+
+  function isHeavyTask(msg: string) {
+    return /(รายงาน|วิเคราะห์ละเอียด|ค้นข้อมูลหลายแหล่ง|สรุปหนังสือ|ทำโค้ด|แก้โค้ด|เขียนระบบ|เอกสารยาว|บทความยาว|กฎหมาย|วีซ่า|สัญญา|เปรียบเทียบละเอียด)/i.test(msg);
+  }
+
+  function requestHeavyTaskApproval(msg: string) {
+    if (mem.ownerMode) return false;
+    const cost = /โค้ด|ระบบ|กฎหมาย|สัญญา|รายงาน/i.test(msg) ? 40 : 20;
+    const ok = window.confirm(
+      `งานนี้ต้องใช้พลังค่อนข้างเยอะ ประมาณ ${cost} เพชร เพราะน้องน้ำต้องคิดและเรียบเรียงหลายส่วน\n\nถ้าพี่โอเค สั่งน้องน้ำมาได้เลย`
+    );
+    if (!ok) {
+      sendAssistant("ได้ค่ะพี่ น้ำยังไม่เริ่มงานหนักให้นะ ถ้าพี่โอเค สั่งน้องน้ำมาได้เลย");
+      return true;
+    }
+    if (mem.gems < cost) {
+      sendAssistant(`งานนี้ใช้ประมาณ ${cost} เพชร แต่ตอนนี้เพชรพี่ไม่พอนะคะ เติมเพชรจาก Settings ก่อนได้เลย`);
+      return true;
+    }
+    updateMem({ gems: mem.gems - cost });
+    notify(`ใช้ ${cost} เพชรสำหรับงานหนัก`);
+    return false;
+  }
+
+  function isOutfitActionIntent(msg: string) {
+    return /(เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เปิดชุด|เปิดคลังชุด|พาไปเลือกชุด|ไปเปลี่ยนชุด|ใส่ชุดนี้|อยากซื้อชุด|ซื้อเสื้อผ้า|แต่งตัวใหม่|ชุดใหม่ให้หน่อย|วันนี้ใส่ชุดไหนดี|น้องน้ำไปเปลี่ยน)/i.test(msg);
+  }
+
+  function isOutfitMemoryIntent(msg: string) {
+    return /(ตอน.*ใส่ชุด|วันนั้น.*ใส่ชุด|เดท.*ใส่ชุด|เจอกันครั้งแรก.*ชุด|ชุดวันนั้น|จำได้ไหม.*ชุด|น้องน้ำใส่ชุดอะไรนะ|ใส่ชุดอะไรนะ)/i.test(msg);
+  }
+
+  function firstDateStoryReply(m: Memory = mem) {
+    const story = getStoryMemory();
+    if (!story.firstDate) {
+      story.firstDate = {
+        place: "ร้านกาแฟเล็ก ๆ ตรงมุมถนนที่ไฟออกสีอุ่น ๆ",
+        outfit: m.gender === "male" ? "เสื้อเชิ้ตสีขาวเรียบ ๆ กับกางเกงสีเข้ม" : "เดรสสีครีมอ่อน ๆ เรียบร้อยแต่หวานนิด ๆ",
+        feeling: "เขินแต่พยายามทำตัวนิ่ง",
+        detail: "พี่มองแล้วแซวว่าวันนั้นดูเรียบร้อยเกินไป ทั้งที่จริง ๆ น้ำตื่นเต้นมาก"
+      };
+      saveStoryMemory(story);
+    }
+    const s = story.firstDate;
+    return `จำได้สิคะ วันนั้นเราเจอกันที่${s.place} ${m.nongnamName || "น้องน้ำ"}ใส่${s.outfit} แล้วก็${s.feeling}มาก ๆ ${s.detail} เรื่องแบบนี้น้ำไม่ลืมง่าย ๆ หรอกนะ`;
+  }
+
+
+
+  useEffect(() => {
+    const setupScreens = new Set(['setup', 'welcome']);
+    if (hasCompletedSetup(mem) && setupScreens.has(screen)) {
+      setScreen("chat");
+    }
+  }, [screen, mem.nongnamName, mem.userCallName, mem.relationshipMode]);
+
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
     if (/เครียด|เสียใจ|ร้องไห้|เจ็บ|โดนด่า|หงุดหงิด|โมโห/.test(msg)) return "hurt";
@@ -908,6 +1101,11 @@ export default function Page() {
     const mood = detectUserMood(msg);
     const romantic = isRomanticMode(mem);
 
+    if (shouldRememberInstruction(msg)) {
+      rememberUserPreference(msg);
+      return "โอเคค่ะพี่ น้ำจำไว้แล้วนะ คราวหน้าจะพยายามทำให้พี่เห็นเลยว่าน้ำไม่ทำแบบที่พี่ไม่ชอบซ้ำอีก";
+    }
+
     const name = mem.nongnamName || "น้องน้ำ";
     const user = mem.userCallName || "พี่";
     const style = mem.personalityStyle;
@@ -923,7 +1121,11 @@ export default function Page() {
       setTimeout(() => loadNews(msg), 100);
       return newsIntroText(mem);
     }
-    if (isOutfitIntent(msg)) {
+    if (isOutfitMemoryIntent(msg)) {
+      return firstDateStoryReply(mem);
+    }
+
+    if (isOutfitActionIntent(msg)) {
       setScreen("outfits");
       return outfitInviteText(mem);
     }
@@ -1126,7 +1328,7 @@ export default function Page() {
       return;
     }
 
-    if (isOutfitIntent(msg)) {
+    if (isOutfitActionIntent(msg)) {
       setStatus("idle");
       setScreen("outfits");
       const invite = outfitInviteText(updatedMem);

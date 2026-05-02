@@ -421,3 +421,7 @@ textarea { width:100%; padding:13px 14px; border-radius:16px; border:1px solid #
   color:#d9367a;
   border:1px solid #f3c6d7;
 }
+
+.settingCard{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:18px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.75);margin:12px 0}
+.settingCard button{border:0;border-radius:14px;padding:10px 12px;background:#fff;color:#6b4c5f;font-weight:800;box-shadow:0 8px 20px rgba(70,40,70,.08)}
+.settingCard .tiny{font-size:12px;color:#856b7a;line-height:1.35}
