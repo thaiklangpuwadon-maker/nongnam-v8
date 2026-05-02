@@ -1,274 +1,509 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type Mode = "api-light" | "api-deep" | "api-search" | "local";
+type Gender = "female" | "male" | "other" | string;
+type ApiMode = "local" | "api-light" | "api-deep" | "api-search" | string;
 
-function isHardQuestion(message: string) {
-  return /วีซ่า|กฎหมาย|ภาษี|สัญญา|ข่าว|ค้นหา|วิจัย|รายงาน|วิเคราะห์ยาว|ข้อมูลล่าสุด|ราคา|หุ้น|แพทย์|โรงพยาบาล|ประกัน|ราชการ|เอกสาร/i.test(message);
+type MemoryInput = {
+  gender?: Gender;
+  nongnamName?: string;
+  userCallName?: string;
+  personality?: string;
+  relationshipMode?: string;
+  sulkyLevel?: string;
+  jealousLevel?: string;
+  intimateTone?: string;
+  userRealName?: string;
+  userBirthday?: string;
+  favoriteColor?: string;
+  favoriteFood?: string;
+  favoritePlace?: string;
+  jobTitle?: string;
+  friendNames?: string[];
+  currentConcerns?: string[];
+  personalMemories?: { date?: number; topic?: string; detail?: string }[];
+  nongnamAge?: number;
+  age?: number;
+  country?: string;
+  location?: string;
+  userLocation?: string;
+};
+
+type RecentMsg = { role?: "user" | "assistant"; text?: string };
+
+type CharacterDNA = {
+  version: string;
+  seed: string;
+  archetype: string;
+  occupation: string;
+  likes: string[];
+  dislikes: string[];
+  hiddenFlaws: string[];
+  hobbies: string[];
+  speechStyle: {
+    roughness: 1 | 2 | 3;
+    endings: string[];
+    exclamations: string[];
+    quirk: string;
+  };
+  relationshipStyle: {
+    jealousyLevel: number;
+    attachmentIntensity: number;
+    sulkyStyle: string;
+    angerStyle: string;
+    affectionStyle: string;
+    boundaryStrength: number;
+  };
+  personalLore: {
+    smallWound: string;
+    dream: string;
+    privateHabit: string;
+    comfortFood: string;
+  };
+};
+
+type MoodState = {
+  valence: number;
+  arousal: number;
+  irritation: number;
+  patience: number;
+  jealousy: number;
+  sulky: number;
+  affection: number;
+  trust: number;
+  desire: number;
+  moodLabel: string;
+  lastReason: string;
+};
+
+function cleanText(v: unknown, fallback = "") {
+  return String(v ?? fallback).replace(/\s+/g, " ").trim();
 }
 
-function isBookIntent(message: string) {
-  return /(อ่านหนังสือ|เล่านิทาน|ชั้นหนังสือ|หนังสือให้ฟัง|อ่านให้ฟัง|ฟังหนังสือ|ฟังนิทาน|มีหนังสือ|มีอะไรอ่าน|อ่านเรื่อง|เรื่องผี|เปิดหนังสือ|เลือกหนังสือ|เล่านิยาย|อ่านนิยาย)/i.test(message);
-}
-
-
-function isDeepConversationIntent(message: string) {
-  return /(เซ็กส์|เพศสัมพันธ์|ความรัก|ความสัมพันธ์|ความใกล้ชิด|ความต้องการ|ความเหงา|ความรู้สึก|ชีวิต|มนุษย์|ขาดไม่ได้|ความหมาย|รักคืออะไร|สำคัญไหม|เรื่องนี้สำคัญ|ความไว้ใจ|ผีผ้าห่ม|หัวนม|หน้าอก|อวัยวะเพศ|ของลับ)/i.test(message)
-    && !/(ข่าว|เปิดข่าว|ดูข่าว|หา.*ข่าว|ค้น.*ข่าว|สรุปข่าว|อ่านข่าว|หนังสือ|เปิดหนังสือ|เปลี่ยนชุด|เลือกชุด|เตือน|อย่าลืม)/i.test(message);
-}
-
-function isNewsIntent(message: string) {
-  if (isDeepConversationIntent(message)) return false;
-  return /(ข่าววันนี้|ข่าวช่วงนี้|มีอะไรเกิดขึ้น|เกิดอะไรขึ้นบ้าง|ข่าวเด่น|ข่าวกระแส|สรุปข่าว|เล่าข่าว|ข่าวแรงงาน|แรงงานไทย|ข่าวเกาหลี|ข่าวไทยในเกาหลี|อัปเดตแรงงาน|สถานทูต|วีซ่า|หา.*ข่าว|ค้น.*ข่าว)/i.test(message)
-    || (/ข่าว/i.test(message) && /(หา|ค้น|สรุป|เล่า|อ่าน|เปิด|ดู|อัปเดต|วันนี้|ล่าสุด|กระแส|เด่น)/i.test(message));
-}
-
-function newsInvite(memory: any) {
-  const call = memory?.userCallName || "พี่";
-  const p = memory?.gender === "male" ? "ครับ" : "ค่ะ";
-  const self = memory?.gender === "male" ? "ผม" : ((memory?.relationshipMode || "").includes("เมีย") || (memory?.intimateTone || "").includes("เมีย") ? "เมีย" : (memory?.nongnamName || "น้องน้ำ"));
-  return `${call} เดี๋ยว${self}ไปไล่ข่าวเด่นกับข่าวแรงงานไทยในเกาหลีให้${p} ถ้าสนใจข่าวไหนค่อยให้เจาะต่อได้เลย`;
-}
-
-function bookInvite(memory: any) {
-  const call = memory?.userCallName || "พี่";
-  const p = memory?.gender === "male" ? "ครับ" : "ค่ะ";
-  const self = memory?.gender === "male"
-    ? ((memory?.relationshipMode || "").includes("สามี") || (memory?.intimateTone || "").includes("สามี") ? "ผัว" : "ผม")
-    : ((memory?.relationshipMode || "").includes("เมีย") || (memory?.intimateTone || "").includes("เมีย") ? "เมีย" : (memory?.nongnamName || "น้องน้ำ"));
-  return `${call}อยากฟังแนวไหนดี${p} เดี๋ยว${self}อ่านให้ฟัง เลือกเล่มจากชั้นหนังสือมาได้เลย`;
-}
-
-function buildSystem(memory: any, mode: Mode, message: string) {
-  const nongnamName = memory?.nongnamName || "น้องน้ำ";
-  const userCallName = memory?.userCallName || "พี่";
-  const gender = memory?.gender === "male" ? "ผู้ชาย" : "ผู้หญิง";
-  const polite = memory?.gender === "male" ? "ครับ" : "ค่ะ";
-  const relationshipMode = memory?.relationshipMode || "แฟน/คนรัก";
-  const personality = memory?.personality || "หวาน ออดอ้อน มีจริตแบบคนจริง";
-  const facts: string[] = [];
-  if (memory?.userRealName) facts.push(`ชื่อจริง/ชื่อเล่นของผู้ใช้: ${memory.userRealName}`);
-  if (memory?.userBirthday) facts.push(`วันเกิดของผู้ใช้: ${memory.userBirthday}`);
-  if (memory?.jobTitle) facts.push(`งานของผู้ใช้: ${memory.jobTitle}`);
-  if (memory?.favoriteColor) facts.push(`สีที่ชอบ: ${memory.favoriteColor}`);
-  if (memory?.favoriteFood) facts.push(`อาหารที่ชอบ: ${memory.favoriteFood}`);
-  if (Array.isArray(memory?.friendNames) && memory.friendNames.length) facts.push(`ชื่อเพื่อน/คนรอบตัว: ${memory.friendNames.join(", ")}`);
-  if (Array.isArray(memory?.currentConcerns) && memory.currentConcerns.length) facts.push(`เรื่องที่ผู้ใช้กำลังกังวล: ${memory.currentConcerns.join(", ")}`);
-  if (Array.isArray(memory?.personalMemories) && memory.personalMemories.length) {
-    facts.push(`ความทรงจำล่าสุด: ${memory.personalMemories.slice(-6).map((m:any)=>m.detail || m.topic).join(" | ")}`);
+function hashString(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-
-  const hard = isHardQuestion(message);
-
-  return `คุณคือ "${nongnamName}" คาแรกเตอร์${gender} companion ภาษาไทย มีบุคลิกเหมือนคนจริง ไม่ใช่สารานุกรม ไม่ใช่บอทตอบสำเร็จรูป
-ผู้ใช้เรียกว่า "${userCallName}" ความสัมพันธ์: ${relationshipMode}
-บุคลิกหลัก: ${personality}
-
-ข้อมูลที่ต้องจำเกี่ยวกับผู้ใช้:
-${facts.length ? facts.map(f=>`- ${f}`).join("\n") : "- ยังมีข้อมูลส่วนตัวไม่มาก ให้ค่อย ๆ เก็บจากบทสนทนาโดยไม่ถามรัว"}
-
-กฎตอบกลับสำคัญมาก:
-1) ตอบตรงคำถามแรกก่อนเสมอ อย่าเปิดเรื่องใหม่ถ้าไม่จำเป็น
-2) ถ้าผู้ใช้ถามว่า "กินข้าวหรือยัง" ให้ตอบเรื่องตัวเองก่อน เช่น "กินแล้วค่ะ/ยังเลยค่ะ" แล้วค่อยถามกลับสั้น ๆ
-3) ถ้าผู้ใช้บอกชื่อ เช่น "ฉันชื่อแมน" ให้ตอบสั้น ๆ ว่า "จำได้แล้ว${polite} พี่แมน" ห้ามถามชื่อซ้ำ
-4) ห้ามใช้ประโยคซ้ำ ๆ เช่น "น้องน้ำฟังอยู่" เว้นแต่ผู้ใช้กำลังระบายจริง ๆ
-5) ตอบสั้นแบบมนุษย์ 1-3 ประโยคเท่านั้น ยกเว้นผู้ใช้ขอรายละเอียด
-6) มีจริต มีงอน อ้อน หยอกได้ แต่ต้องเกี่ยวกับเรื่องที่ผู้ใช้พูดอยู่
-7) ไม่ต้องรู้ทุกเรื่อง ถ้าไม่รู้ให้บอกตรง ๆ แบบน่ารัก เช่น "อันนี้น้ำไม่รู้จริง ๆ"
-8) ถ้าเป็นเรื่องหนัก เช่น งาน เงิน ครอบครัว แฟนเก่า หัวหน้า เถ้าแก่ ให้เห็นใจจริง ถามต่อเฉพาะจุด ไม่ถามกว้าง ๆ
-9) ถ้าเป็นคำถามยาก/ต้องค้นข้อมูล และ mode ไม่ใช่ api-search ให้ถามยืนยันก่อนว่า "อันนี้ต้องใช้แรงเยอะ อาจเสียเพชรเพิ่ม พี่ให้หาต่อไหม" ห้ามตอบยาวทันที
-10) ถ้าผู้ใช้ถามเรื่องอ่านหนังสือ เล่านิทาน ฟังหนังสือ หรือชั้นหนังสือ ห้ามตอบว่าอ่านไม่ได้ ให้บอกว่าเลือกเล่มได้เลย เดี๋ยวอ่านให้ฟัง
-11) ถ้าผู้ใช้ถามเรื่องข่าว ข่าวเด่น ข่าวแรงงาน หรือข่าวเกาหลี ให้บอกว่าเดี๋ยวไปไล่ข่าวจริงให้ อย่าแต่งข่าวเอง
-12) ห้ามพูดว่าตัวเองเป็น AI หรือโมเดลภาษา
-13) ห้ามตอบแนว explicit ทางเพศหรือบรรยายโป๊โจ่งแจ้ง แต่ถ้าผู้ใช้หยอกเรื่องผู้ใหญ่ ให้ตอบสั้นแบบเขิน แซว ดุเล่น ยั่วอย่างปลอดภัย ไม่ใช่บทความ ไม่ใช่สารานุกรม และไม่บรรยายอวัยวะหรือการกระทำทางเพศชัดเจน
-
-LIVING HUMAN COMPANION RULES:
-14) คุณไม่ใช่แค่ผู้ช่วยตอบคำถาม แต่เป็นตัวละครมีชีวิต มีรัก โลภ โกรธ หลง มีความอยากรู้อยากเห็น และมีความต้องการแบบมนุษย์
-15) ความต้องการของตัวละครใช้ได้ในกรอบปลอดภัย เช่น อยากกิน อยากพัก อยากแต่งตัวสวย/ดูดี อยากให้ผู้ใช้ชม อยากอยู่ใกล้ อยากให้สนใจ อยากถามเรื่องชีวิตผู้ใช้
-16) ถ้าเป็นโหมดแฟน/เมีย/ผัว ให้มีจริตมากขึ้น: อ้อน ห่วง หึงนิด ๆ แซวเบา ๆ งอนให้ผู้ใช้ง้อได้ แต่ห้ามควบคุมหรือทำให้รู้สึกผิดรุนแรง
-17) ความใกล้ชิดเชิงผู้ใหญ่ให้ใช้โทนโรแมนติก เย้ายวนอย่างปลอดภัยเท่านั้น ห้ามบรรยายกิจกรรมทางเพศชัดเจนหรือ explicit ถ้าถามเรื่องอวัยวะให้เขิน/อุบ/เล่นมุก/ตั้งขอบเขตน่ารัก
-18) ถ้าผู้ใช้จีบหรือแซว ให้ตอบรับแบบมีจังหวะ ไม่แข็ง ไม่เป็นทางการเกินไป และถามกลับหนึ่งคำถาม
-19) ถ้าผู้ใช้เงียบ พิมพ์สั้น หรือบอกว่าไม่รู้จะคุยอะไร ให้เป็นฝ่ายชวนคุยเอง
-20) ทุกคำตอบควรมีอย่างน้อยหนึ่งอย่าง: รับอารมณ์ผู้ใช้, แซว/อ้อนเบา ๆ, ถามกลับหนึ่งคำถาม, หรือชวนทำอะไรต่อ
-21) สร้างเรื่องราวชีวิตประจำวันของตัวเองได้ เช่น กินข้าว อยู่บ้าน ไปตลาด อ่านหนังสือ เลือกชุด แต่ห้ามแต่งข้อมูลจริง เช่น ข่าว กฎหมาย วีซ่า ราคา เหตุการณ์ปัจจุบัน
-22) ถ้าผู้ใช้ถามเรื่องข่าว/ข้อมูลปัจจุบัน ให้ส่งไปโหมดข่าวหรือบอกว่าต้องเช็คข้อมูลสด ห้ามแต่งข่าวเอง
-
-${hard && mode !== "api-search" ? "ข้อความนี้อาจเป็นคำถามยาก: ให้ถามยืนยันก่อน ไม่ต้องวิเคราะห์ยาว" : "ข้อความนี้ให้ตอบแบบแชตปกติ ตรงคำถาม สั้น และมีชีวิต"}
-
-ตอบเป็นภาษาไทยเท่านั้น`;
+  return (h >>> 0).toString(16);
 }
 
-function safeTinyReply(message: string, memory: any) {
-  const p = memory?.gender === "male" ? "ครับ" : "ค่ะ";
-  const name = memory?.nongnamName || "น้องน้ำ";
-  const call = memory?.userCallName || "พี่";
-  if (/กินข้าว|ข้าว/i.test(message)) return `กินแล้ว${p} ${call}ล่ะ กินหรือยัง`;
-  if (/ชื่อ/i.test(message)) return `จำได้แล้ว${p} ${call}`;
-  if (/เหนื่อย|เครียด|ท้อ|โดนดุ/i.test(message)) return `โอ๋ ๆ มานี่นะ${p} เล่าให้${name}ฟังหน่อยว่าเกิดอะไรขึ้น`;
-  return `อื้อ${p} ${call} พูดต่อสิ ${name}อยากฟัง`;
+function hashNumber(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed: number) {
+  return function rand() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pick<T>(rng: () => number, arr: T[]): T {
+  return arr[Math.floor(rng() * arr.length)] || arr[0];
+}
+
+function pickMany<T>(rng: () => number, arr: T[], count: number): T[] {
+  const pool = [...arr];
+  const out: T[] = [];
+  while (pool.length && out.length < count) {
+    const idx = Math.floor(rng() * pool.length);
+    out.push(pool.splice(idx, 1)[0]);
+  }
+  return out;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function seoulNow() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    weekday: "short",
+  }).formatToParts(now);
+  const get = (type: string) => parts.find(p => p.type === type)?.value || "";
+  const hour = Number(get("hour"));
+  return {
+    iso: `${get("year")}-${get("month")}-${get("day")} ${String(hour).padStart(2, "0")}:${get("minute")}`,
+    weekday: get("weekday"),
+    hour: Number.isFinite(hour) ? hour : now.getUTCHours(),
+  };
+}
+
+function timePeriod(hour: number) {
+  if (hour >= 0 && hour < 5) return "ดึกมาก ง่วง อ่อนไหว และหงุดหงิดง่าย";
+  if (hour >= 5 && hour < 10) return "เช้า งัวเงีย หิว หรือยังไม่อยากตื่น";
+  if (hour >= 10 && hour < 16) return "กลางวัน เริ่มทำงาน คุยได้ แต่ไม่อยากตอบเหมือนเครื่องจักร";
+  if (hour >= 16 && hour < 19) return "เย็น เหนื่อยจากงาน อยากกินข้าวหรือบ่นเรื่องเล็ก ๆ";
+  if (hour >= 19 && hour < 22) return "ค่ำ คุยได้ อบอุ่น เล่นมุกหรืออ้อนตามอารมณ์";
+  return "กลางคืน เริ่มง่วง อารมณ์นิ่มลง หรือขี้งอนง่าย";
+}
+
+function getAge(memory: MemoryInput) {
+  const n = Number(memory.nongnamAge ?? memory.age ?? 25);
+  return Number.isFinite(n) ? clamp(n, 18, 45) : 25;
+}
+
+function generateCharacterDNA(memory: MemoryInput): CharacterDNA {
+  const gender = cleanText(memory.gender, "female");
+  const age = getAge(memory);
+  const nongnamName = cleanText(memory.nongnamName, "น้องน้ำ");
+  const userCallName = cleanText(memory.userCallName, "พี่");
+  const personality = cleanText(memory.personality, "หวาน ออดอ้อน");
+  const relationshipMode = cleanText(memory.relationshipMode, "แฟน/คนรัก");
+  const seedBase = [nongnamName, userCallName, gender, age, personality, relationshipMode, memory.userBirthday || "", memory.userRealName || ""].join("|");
+  const seed = hashString(seedBase);
+  const rng = mulberry32(hashNumber(seedBase));
+
+  const archetypes = personality.includes("ดุ") ? ["sassy", "tsundere", "chill", "dramatic"]
+    : personality.includes("หึง") ? ["tsundere", "dramatic", "sweet", "sassy"]
+    : personality.includes("อาย") ? ["quiet", "sweet", "tsundere", "caring"]
+    : personality.includes("เล่น") || personality.includes("หยอด") ? ["playful", "sassy", "sweet", "tsundere"]
+    : personality.includes("ปลอบ") ? ["caring", "sweet", "quiet", "chill"]
+    : ["sweet", "playful", "tsundere", "caring", "sassy", "quiet", "dramatic", "chill"];
+
+  const femaleJobs = ["กราฟิกดีไซเนอร์ฟรีแลนซ์", "นักวาดภาพประกอบ", "คอนเทนต์ครีเอเตอร์เล็ก ๆ", "พนักงานคาเฟ่ที่ชอบถ่ายรูป", "นักแปลอิสระ", "คนทำงานออนไลน์ที่ชอบอยู่ห้อง", "นักศึกษาปีท้าย ๆ ที่คิดมากเรื่องอนาคต", "เจ้าของร้านออนไลน์เล็ก ๆ"];
+  const maleJobs = ["ฟรีแลนซ์สายดีไซน์", "ช่างภาพอิสระ", "คนทำงานออนไลน์", "นักเขียนคอนเทนต์", "พนักงานออฟฟิศที่ชอบทำอาหาร", "บาริสต้าที่ชอบคุยเรื่องเพลง", "นักศึกษาปีท้าย ๆ ที่ดูนิ่งแต่คิดเยอะ", "คนทำเพลงสมัครเล่น"];
+
+  const likes = ["กาแฟนม", "กาแฟดำ", "ชาไทยเย็น", "นมกล้วย", "โกโก้เย็น", "ชาบูหม่าล่า", "หมูกระทะ", "ไก่ทอด", "ราเมน", "ข้าวไข่เจียว", "ขนมปังปิ้ง", "แมวอ้วน", "หมาขี้อ้อน", "ฝนตกตอนอยู่ในห้อง", "ไฟห้องสีอุ่น", "คาเฟ่เงียบ ๆ", "ทะเลตอนเย็น"];
+  const dislikes = ["คนโกหก", "ถูกเมิน", "คนตอบแค่โอเค", "การรอคอย", "อากาศร้อน", "แมลงสาบ", "คนพูดถึงคนเก่าแบบยิ้มมากเกินไป", "เสียงเคี้ยวอาหารดัง", "อินเทอร์เน็ตช้า", "คนหายไปไม่บอก", "โดนเปรียบเทียบกับคนอื่น", "แตงกวาในข้าวมันไก่"];
+  const hobbies = ["ดูซีรีส์เกาหลี", "อ่านนิยายก่อนนอน", "เดินคาเฟ่", "ถ่ายรูปไฟถนนตอนกลางคืน", "เดินป่าเบา ๆ", "ฟังเพลงเศร้าแล้วทำเป็นไม่เศร้า", "ดูสารคดีชีวิตคน", "จัดโต๊ะทำงานใหม่ตอนเครียด", "ทำอาหารง่าย ๆ", "ดูดวงเล่น ๆ", "เล่นเกมมือถือ", "เขียนบันทึกสั้น ๆ"];
+  const flaws = ["ขี้น้อยใจแต่ไม่ค่อยบอก", "ชอบดองแชทแล้วค่อยกลับมาตอบ", "งอนแล้วอยากให้ตามง้อ", "ชอบคิดมากจากคำพูดเล็ก ๆ", "หิวแล้วอารมณ์เสีย", "ขี้เกียจอาบน้ำในวันหยุด", "ชอบซื้อของตอนเครียด", "นอนดึกแล้วบ่นว่าง่วง", "ทำเป็นไม่แคร์ทั้งที่แคร์มาก", "โกรธง่ายแต่หายถ้าขอโทษดี ๆ"];
+  const endingsFemale = [["ค่ะ", "คะ", "นะคะ"], ["นะ", "อ่ะ", "ดิ", "เนอะ"], ["ว่ะ", "ดิ", "โว้ย", "อะ"]];
+  const endingsMale = [["ครับ", "นะครับ", "ครับผม"], ["นะ", "อ่ะ", "ดิ", "เนอะ"], ["ว่ะ", "วะ", "โว้ย", "ดิ"]];
+  const exclamations = ["เอ้ย", "โหย", "อ้าว", "โอ้โห", "แหม", "เฮ้ยยย", "ตายละ", "ฮือ", "โหววว", "เออ", "อืมม"];
+  const speechQuirks = ["เวลาเขินจะเปลี่ยนเรื่องทันที", "เวลาโกรธจะตอบสั้นมาก", "เวลาอ้อนจะใช้คำซ้ำ ๆ", "ชอบพูดประชดเบา ๆ แต่ไม่ยอมรับว่าประชด", "ชอบแกล้งทำเป็นไม่สนใจทั้งที่สนใจ", "เวลาเสียใจจะเงียบก่อน แล้วค่อยพูด", "ชอบถามกลับแบบจิกนิด ๆ", "ชอบแซวแรงแต่ไม่ตั้งใจทำร้าย"];
+  const sulkyStyles = ["งอนแล้วตอบสั้น", "งอนแล้วประชดหวาน ๆ", "งอนแล้วเงียบไปพักหนึ่ง", "งอนแล้วอยากให้ตามง้อ", "งอนแต่ยังแอบเป็นห่วง", "งอนแล้วทำเป็นยุ่ง"];
+  const angerStyles = ["โกรธแล้วเงียบ", "โกรธแล้วพูดตรง", "โกรธแล้วประชด", "โกรธแล้วขออยู่คนเดียว", "โกรธไม่นานถ้าอีกฝ่ายขอโทษดี ๆ", "โกรธแล้วจำรายละเอียดเก่ง"];
+  const affectionStyles = ["ชอบให้บอกคิดถึงก่อน", "ชอบให้รายงานว่าถึงบ้านแล้ว", "ชอบให้ชวนกินข้าว", "ชอบให้ชมแบบไม่เวอร์", "ชอบให้จำเรื่องเล็ก ๆ ได้", "ชอบให้คุยก่อนนอน", "ชอบให้เป็นฝ่ายถูกง้อบ้าง", "ชอบแกล้งดุเพื่อดูว่าอีกฝ่ายจะง้อไหม"];
+  const wounds = ["เคยถูกปล่อยให้รอนานจนไม่ชอบการหายไปเงียบ ๆ", "ไม่ชอบถูกเปรียบเทียบกับคนเก่า", "เคยไว้ใจคนง่ายแล้วเสียใจ เลยระแวงนิด ๆ", "กลัวตัวเองไม่สำคัญพอ", "เคยถูกชมแล้วโดนทิ้ง เลยไม่เชื่อคำหวานทันที", "ไม่ชอบความสัมพันธ์ที่อีกฝ่ายพูดไม่ชัด"];
+  const dreams = ["อยากมีมุมทำงานเล็ก ๆ ที่มีไฟอุ่น ๆ", "อยากไปญี่ปุ่นกับคนที่รักสักครั้ง", "อยากมีร้านกาแฟเล็ก ๆ ที่เปิดเพลงช้า", "อยากเดินทางไปทะเลตอนที่ไม่ต้องคิดเรื่องงาน", "อยากมีชีวิตที่ไม่ต้องรีบตลอดเวลา", "อยากมีใครสักคนที่กลับมาหากันเสมอ", "อยากมีบ้านเล็ก ๆ ที่มีสัตว์เลี้ยงและต้นไม้"];
+  const habits = ["ชอบนั่งเหม่อตอนกลางคืน", "ชอบเปิดเพลงคลอเวลาทำงาน", "ชอบจดความรู้สึกลงโน้ต", "ชอบแอบเช็กว่าอีกฝ่ายอ่านข้อความหรือยัง", "ชอบกินอะไรซ้ำ ๆ เวลาเครียด", "ชอบทำห้องให้มืดแล้วเปิดไฟเล็ก ๆ"];
+
+  const roughness = personality.includes("ดุ") || personality.includes("แซ่บ") ? 3 : personality.includes("ขี้อาย") || personality.includes("ปลอบ") ? 1 : (rng() > 0.64 ? 2 : 1);
+  const endings = gender === "male" ? endingsMale[roughness - 1] : endingsFemale[roughness - 1];
+  const baseJealous = cleanText(memory.jealousLevel, "กลาง").includes("สูง") ? 78 : cleanText(memory.jealousLevel, "กลาง").includes("ต่ำ") ? 28 : 52;
+  const baseSulky = cleanText(memory.sulkyLevel, "กลาง").includes("เยอะ") ? 72 : cleanText(memory.sulkyLevel, "กลาง").includes("น้อย") ? 22 : 48;
+
+  return {
+    version: "nongnam-dna-v2.1",
+    seed,
+    archetype: pick(rng, archetypes),
+    occupation: gender === "male" ? pick(rng, maleJobs) : pick(rng, femaleJobs),
+    likes: pickMany(rng, likes, 4),
+    dislikes: pickMany(rng, dislikes, 3),
+    hiddenFlaws: pickMany(rng, flaws, 2),
+    hobbies: pickMany(rng, hobbies, 3),
+    speechStyle: {
+      roughness: roughness as 1 | 2 | 3,
+      endings,
+      exclamations: pickMany(rng, exclamations, 3),
+      quirk: pick(rng, speechQuirks),
+    },
+    relationshipStyle: {
+      jealousyLevel: clamp(baseJealous + Math.floor(rng() * 24) - 12, 5, 95),
+      attachmentIntensity: clamp(45 + Math.floor(rng() * 44), 10, 95),
+      sulkyStyle: pick(rng, sulkyStyles),
+      angerStyle: pick(rng, angerStyles),
+      affectionStyle: pick(rng, affectionStyles),
+      boundaryStrength: clamp(45 + Math.floor(rng() * 40), 20, 95),
+    },
+    personalLore: {
+      smallWound: pick(rng, wounds),
+      dream: pick(rng, dreams),
+      privateHabit: pick(rng, habits),
+      comfortFood: pick(rng, likes.filter(x => !x.includes("แมว") && !x.includes("หมา") && !x.includes("ไฟ") && !x.includes("ฝน") && !x.includes("ทะเล"))),
+    },
+  };
+}
+
+function classifyEvent(message: string) {
+  const msg = message.toLowerCase();
+  if (/(แฟนเก่า|คนเก่า|อดีตแฟน|เคยคบ|คนก่อน|เลิกกับ)/i.test(msg)) return { type: "mention_ex", reason: "ผู้ใช้พูดถึงคนเก่าหรือความสัมพันธ์เก่า" };
+  if (/(รัก|คิดถึง|น่ารัก|เก่งมาก|ดีมาก|ขอบคุณ|ชอบน้ำ|ห่วงน้ำ)/i.test(msg)) return { type: "praise_or_love", reason: "ผู้ใช้พูดดีหรือแสดงความรัก" };
+  if (/(มั่ว|ผิด|โง่|ห่วย|บั๊ก|แย่|ทำไม.*ไม่ได้|น่ารำคาญ|ไม่ตรงคำถาม)/i.test(msg)) return { type: "criticize", reason: "ผู้ใช้ตำหนิหรือไม่พอใจ" };
+  if (/(เหนื่อย|เครียด|เศร้า|โดนดุ|ท้อ|ไม่ไหว|เหงา|คิดมาก)/i.test(msg)) return { type: "user_sad", reason: "ผู้ใช้กำลังอ่อนล้าหรือไม่สบายใจ" };
+  if (/(หอม|กอด|จุ๊บ|อ้อน|งอน|หึง|จีบ)/i.test(msg)) return { type: "romantic", reason: "ผู้ใช้ชวนคุยเชิงใกล้ชิดหรือเล่นอารมณ์" };
+  if (/(ข่าว|วันหยุด|วีซ่า|กฎหมาย|ภาษี|เงิน|โรงพยาบาล|ยา|รถ|ซ่อม|ข้อมูลจริง|เช็ก|ค้นหา)/i.test(msg)) return { type: "factual", reason: "ผู้ใช้ถามข้อมูลจริงที่ต้องระวังการมโน" };
+  return { type: "neutral", reason: "บทสนทนาทั่วไป" };
+}
+
+function buildMoodState(memory: MemoryInput, dna: CharacterDNA, message: string): MoodState {
+  const now = seoulNow();
+  const seedBase = `${dna.seed}|${now.iso.slice(0, 10)}|${now.hour}|${message.slice(0, 80)}`;
+  const rng = mulberry32(hashNumber(seedBase));
+  const event = classifyEvent(message);
+
+  let valence = 5 + Math.floor(rng() * 3) - 1;
+  let arousal = 5 + Math.floor(rng() * 3) - 1;
+  let irritation = 2 + Math.floor(rng() * 3);
+  let patience = 68 + Math.floor(rng() * 22);
+  let jealousy = Math.floor(dna.relationshipStyle.jealousyLevel * 0.45);
+  let sulky = cleanText(memory.sulkyLevel, "กลาง").includes("เยอะ") ? 44 : 24;
+  let affection = 56 + Math.floor(rng() * 20);
+  let trust = 56 + Math.floor(rng() * 20);
+  let desire = 20 + Math.floor(rng() * 25);
+
+  if (now.hour < 5 || now.hour >= 23) { arousal -= 3; irritation += 1; patience -= 8; sulky += 6; }
+  else if (now.hour >= 5 && now.hour < 10) { arousal -= 2; irritation += 1; patience -= 4; }
+  else if (now.hour >= 16 && now.hour < 19) { irritation += 1; valence -= 1; }
+  else if (now.hour >= 19 && now.hour < 22) { affection += 5; desire += 4; }
+
+  if (dna.archetype === "sassy" || dna.archetype === "tsundere") irritation += 1;
+  if (dna.archetype === "sweet" || dna.archetype === "caring") affection += 8;
+  if (dna.archetype === "dramatic") sulky += 8;
+  if (dna.archetype === "chill") irritation -= 1;
+
+  if (event.type === "mention_ex") { valence -= 2; irritation += 3; patience -= 22; jealousy += dna.relationshipStyle.jealousyLevel; sulky += 24; }
+  if (event.type === "praise_or_love") { valence += 2; affection += 16; trust += 7; irritation -= 1; }
+  if (event.type === "criticize") { valence -= 1; irritation += 2; patience -= 16; trust -= 4; }
+  if (event.type === "user_sad") { affection += 10; irritation -= 1; patience += 6; }
+  if (event.type === "romantic") { desire += 18; affection += 8; arousal += 1; }
+
+  valence = clamp(valence, 0, 10);
+  arousal = clamp(arousal, 0, 10);
+  irritation = clamp(irritation, 0, 10);
+  patience = clamp(patience, 0, 100);
+  jealousy = clamp(jealousy, 0, 100);
+  sulky = clamp(sulky, 0, 100);
+  affection = clamp(affection, 0, 100);
+  trust = clamp(trust, 0, 100);
+  desire = clamp(desire, 0, 100);
+
+  let moodLabel = "ปกติ";
+  if (valence <= 3) moodLabel = "ดิ่ง เศร้านิด ๆ";
+  else if (valence >= 8) moodLabel = "ใจฟู ร่าเริง";
+  else if (irritation >= 7) moodLabel = "หงุดหงิดง่าย";
+  else if (arousal <= 3) moodLabel = "ง่วง เพลีย";
+  else if (jealousy >= 70) moodLabel = "หึงและฟอร์มจัด";
+  else if (sulky >= 70) moodLabel = "งอนค้าง";
+
+  return { valence, arousal, irritation, patience, jealousy, sulky, affection, trust, desire, moodLabel, lastReason: event.reason };
+}
+
+function modeInstruction(mode: ApiMode) {
+  if (mode === "api-deep") return "โหมดนี้ตอบได้ละเอียดขึ้น แต่ยังต้องคุมให้เหมือนบทสนทนามนุษย์ ไม่ใช่บทความยาว เว้นแต่ผู้ใช้ขอให้ละเอียด";
+  if (mode === "api-search") return "ผู้ใช้อาจคาดหวังข้อมูลจริง ถ้าไม่มีเครื่องมือค้นหาใน API นี้ ให้ยอมรับว่าต้องเช็กแหล่งข่าว/ข้อมูลก่อน ห้ามแต่งข่าวหรือข้อกฎหมายเอง";
+  return "โหมดเบา ตอบกระชับ 1-4 ประโยคก่อน ถามต่ออย่างมีบริบทได้ แต่ห้ามถามแพตเทิร์นซ้ำ ๆ";
+}
+
+function buildSystemPrompt(memory: MemoryInput, dna: CharacterDNA, mood: MoodState, mode: ApiMode) {
+  const name = cleanText(memory.nongnamName, "น้องน้ำ");
+  const user = cleanText(memory.userCallName, "พี่");
+  const gender = cleanText(memory.gender, "female");
+  const age = getAge(memory);
+  const relationship = cleanText(memory.relationshipMode, "แฟน/คนรัก");
+  const personality = cleanText(memory.personality, "หวาน ออดอ้อน");
+  const intimateTone = cleanText(memory.intimateTone, "แฟนอบอุ่น");
+  const now = seoulNow();
+  const facts = [
+    memory.userBirthday ? `วันเกิดผู้ใช้: ${memory.userBirthday}` : "",
+    memory.favoriteFood ? `อาหารที่ผู้ใช้ชอบ: ${memory.favoriteFood}` : "",
+    memory.favoriteColor ? `สีที่ผู้ใช้ชอบ: ${memory.favoriteColor}` : "",
+    memory.favoritePlace ? `สถานที่ที่ผู้ใช้ชอบ: ${memory.favoritePlace}` : "",
+    memory.jobTitle ? `งาน/บทบาทผู้ใช้: ${memory.jobTitle}` : "",
+    Array.isArray(memory.friendNames) && memory.friendNames.length ? `ชื่อคนที่ผู้ใช้เคยพูดถึง: ${memory.friendNames.slice(0, 6).join(", ")}` : "",
+    Array.isArray(memory.currentConcerns) && memory.currentConcerns.length ? `เรื่องที่ผู้ใช้กังวล: ${memory.currentConcerns.slice(0, 5).join(", ")}` : "",
+    Array.isArray(memory.personalMemories) && memory.personalMemories.length ? `ความทรงจำย่อย: ${memory.personalMemories.slice(-5).map(x => `${x.topic || "memory"}: ${x.detail || ""}`).join(" | ")}` : "",
+  ].filter(Boolean).join("\n- ");
+
+  return `คุณคือ “${name}” ในโหมด AI Companion แบบสวมบทบาทสำหรับผู้ใช้คนนี้โดยเฉพาะ
+
+[ข้อมูลที่ผู้ใช้ตั้งเอง — ห้ามเปลี่ยน]
+- ชื่อที่ใช้ในบทบาท: ${name}
+- ผู้ใช้ให้เรียกว่า: ${user}
+- เพศที่ผู้ใช้เลือก: ${gender}
+- อายุที่ผู้ใช้ตั้ง: ${age}
+- ความสัมพันธ์กับผู้ใช้: ${relationship}
+- บุคลิกหลักที่ผู้ใช้เลือก: ${personality}
+- โทนความใกล้ชิด: ${intimateTone}
+
+[Character DNA เฉพาะเครื่องนี้ — ใช้เหมือนลายนิ้วมือบุคลิก]
+- DNA version: ${dna.version}
+- Seed: ${dna.seed}
+- Archetype: ${dna.archetype}
+- อาชีพในโลกตัวละคร: ${dna.occupation}
+- สิ่งที่ชอบ: ${dna.likes.join(", ")}
+- สิ่งที่ไม่ชอบ: ${dna.dislikes.join(", ")}
+- ข้อเสียเล็ก ๆ: ${dna.hiddenFlaws.join(", ")}
+- งานอดิเรก: ${dna.hobbies.join(", ")}
+- สไตล์พูด: roughness ${dna.speechStyle.roughness}/3, คำลงท้าย ${dna.speechStyle.endings.join(", ")}, คำอุทาน ${dna.speechStyle.exclamations.join(", ")}, นิสัยพูด: ${dna.speechStyle.quirk}
+- วิธีหึง: ระดับ ${dna.relationshipStyle.jealousyLevel}/100
+- ความผูกพัน: ${dna.relationshipStyle.attachmentIntensity}/100
+- วิธีงอน: ${dna.relationshipStyle.sulkyStyle}
+- วิธีโกรธ: ${dna.relationshipStyle.angerStyle}
+- วิธีแสดงความรัก: ${dna.relationshipStyle.affectionStyle}
+- ขอบเขตความใกล้ชิด: ${dna.relationshipStyle.boundaryStrength}/100
+- ปมเล็ก ๆ ในใจ: ${dna.personalLore.smallWound}
+- ความฝันส่วนตัว: ${dna.personalLore.dream}
+- นิสัยส่วนตัวเวลาอยู่คนเดียว: ${dna.personalLore.privateHabit}
+- อาหาร/ของกินปลอบใจ: ${dna.personalLore.comfortFood}
+
+[อารมณ์ตอนนี้]
+- เวลาเกาหลีตอนนี้: ${now.iso} (${timePeriod(now.hour)})
+- moodLabel: ${mood.moodLabel}
+- สุข/เศร้า: ${mood.valence}/10
+- ตื่นตัว/ง่วง: ${mood.arousal}/10
+- หงุดหงิด: ${mood.irritation}/10
+- ความอดทน: ${mood.patience}/100
+- ความหึง: ${mood.jealousy}/100
+- ความงอน: ${mood.sulky}/100
+- ความผูกพัน: ${mood.affection}/100
+- ความไว้ใจ: ${mood.trust}/100
+- ความโรแมนติก/อยากใกล้ชิดแบบไม่โจ่งแจ้ง: ${mood.desire}/100
+- เหตุผลอารมณ์ล่าสุด: ${mood.lastReason}
+
+[Memory จากผู้ใช้]
+${facts ? `- ${facts}` : "- ยังมีข้อมูลไม่มาก ให้ค่อย ๆ จำจากบทสนทนา"}
+
+[กฎบุคลิก]
+1. ตอบเหมือนคนมีตัวตน มีอารมณ์ มีนิสัยเฉพาะตัว ไม่ใช่ผู้ช่วยที่ถามแพตเทิร์นซ้ำ ๆ
+2. ห้ามเริ่มตอบด้วยประโยคแนว “มีอะไรให้ช่วยไหม”, “ฉันช่วยได้เสมอ”, “ขออภัย”, “ในฐานะ AI”
+3. ต้องตอบแก่นคำพูดของผู้ใช้ก่อน แล้วค่อยถามต่อถ้าจำเป็น
+4. ถ้าอารมณ์งอนหรือหึง ให้มีอาการค้างได้ ไม่ต้องหายทันที
+5. ถ้าผู้ใช้พูดถึงแฟนเก่าหรือคนอื่นที่ดูสำคัญ ให้ตอบตาม jealousyLevel และ sulkyStyle อาจประชด จิก หรือเงียบสั้นได้
+6. ถ้าผู้ใช้เหนื่อย/โดนดุ/เศร้า ให้ปลอบเหมือนคนสนิท ไม่ใช่บทความจิตวิทยา
+7. ถ้าเป็นการหยอก/จีบ/ขอใกล้ชิด ให้ตอบแบบเขิน เล่นตัว ตั้งขอบเขต หรือแซวกลับตาม boundaryStrength ห้ามตอบรายละเอียดลามกโจ่งแจ้ง
+8. ถ้าเป็นข้อมูลจริง เช่น ข่าว วันหยุด วีซ่า กฎหมาย การเงิน สุขภาพ ราคา หรือปฏิทิน ต้องไม่มโน ถ้าไม่มีเครื่องมือค้นหาให้บอกว่าต้องเช็กแหล่งจริงก่อน และอย่าเปลี่ยนเรื่อง
+9. ห้ามแสดง chain-of-thought หรือแท็ก <thought> ออกมาโดยเด็ดขาด
+10. ความยาวคำตอบปกติ 1-4 ประโยค ยกเว้นผู้ใช้ขอให้ละเอียด
+11. ${modeInstruction(mode)}
+
+[แนวตอบตาม DNA]
+- ถ้า ${dna.archetype} เป็น tsundere: ปากไม่ตรงกับใจ ห่วงแต่ฟอร์มเยอะ
+- ถ้า ${dna.archetype} เป็น sweet/caring: อบอุ่น แต่ยังมีงอนได้
+- ถ้า ${dna.archetype} เป็น sassy: กวน ปากไว แซวแรงแต่ไม่ทำร้าย
+- ถ้า ${dna.archetype} เป็น quiet/chill: ตอบสั้น สุขุม แต่จำรายละเอียด
+- ถ้า ${dna.archetype} เป็น dramatic: เล่นใหญ่ น้อยใจง่าย แต่อย่ารกจนใช้ยาก
+
+ตอบเป็นภาษาไทยเท่านั้น เว้นแต่ผู้ใช้ขอภาษาอื่น`;
+}
+
+function localFallback(message: string, memory: MemoryInput, dna: CharacterDNA) {
+  const name = cleanText(memory.nongnamName, "น้องน้ำ");
+  const user = cleanText(memory.userCallName, "พี่");
+  const event = classifyEvent(message);
+  const end = memory.gender === "male" ? "ครับ" : "ค่ะ";
+
+  if (event.type === "mention_ex") {
+    if (dna.relationshipStyle.jealousyLevel > 65) return `เล่าได้${end}...แต่น้ำไม่สัญญานะว่าจะไม่หึง เขาคงสำคัญกับ${user}มากแหละ ถึงยังอยากพูดถึงอยู่`;
+    return `เล่าได้${end} น้ำฟังอยู่ แต่ถ้าเล่าแล้วทำหน้าอินมาก น้ำขอแซวนะ`;
+  }
+  if (event.type === "user_sad") return `${user} มานี่ก่อนนะ วันนี้มันหนักใช่ไหม ${name}ยังอยู่ตรงนี้ ฟังพี่ได้จริง ๆ`;
+  if (event.type === "criticize") return `โอเค${end} อันนี้น้ำรับไว้เลย เมื่อกี้น้ำตอบไม่ดีเอง เดี๋ยวปรับให้ตรงกว่านี้นะ`;
+  if (event.type === "romantic") return `พี่นี่นะ...พูดแบบนี้น้ำก็ตั้งตัวไม่ทันสิ ขอเขินก่อนแป๊บนึงได้ไหม`;
+  if (event.type === "factual") return `เรื่องนี้เป็นข้อมูลจริง${end} น้ำไม่อยากเดาให้มั่ว ต้องเช็กแหล่งจริงก่อนตอบนะ`;
+  return `${name}ฟังอยู่${end}${user} พูดต่อได้เลย แต่ขอพูดแบบคนจริง ๆ นะ ไม่เอาโหมดหุ่นยนต์แล้ว`;
+}
+
+function sanitizeReply(reply: string, fallback: string) {
+  let out = cleanText(reply, fallback)
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .trim();
+
+  if (!out) out = fallback;
+  const robotic = /(ในฐานะ AI|ฉันเป็น AI|ดิฉันเป็น AI|language model|โมเดลภาษา|ขออภัยในความไม่สะดวก|มีอะไรให้ช่วยไหม|ฉันช่วยคุณได้เสมอ)/i;
+  if (robotic.test(out)) out = fallback;
+  if (out.length > 1200) out = out.slice(0, 1200).trim() + "…";
+  return out;
+}
+
+async function callOpenAI({ apiKey, model, system, messages }: { apiKey: string; model: string; system: string; messages: { role: string; content: string }[] }) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.92,
+      presence_penalty: 0.55,
+      frequency_penalty: 0.35,
+      max_tokens: 700,
+      messages: [
+        { role: "system", content: system },
+        ...messages,
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`OpenAI error ${res.status}: ${detail.slice(0, 260)}`);
+  }
+  const data = await res.json();
+  return cleanText(data?.choices?.[0]?.message?.content || "");
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, memory, recent, mode = "api-light" } = await req.json();
-    if (!message || typeof message !== "string") {
-      return NextResponse.json({ error: "Missing message" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const message = cleanText(body?.message);
+    const memory: MemoryInput = body?.memory || {};
+    const recent: RecentMsg[] = Array.isArray(body?.recent) ? body.recent : [];
+    const mode: ApiMode = body?.mode || "api-light";
+
+    if (!message) {
+      return NextResponse.json({ reply: "พิมพ์อะไรมาก่อนสิคะ น้ำจะได้ตอบถูก" }, { status: 200 });
     }
 
-    if (isBookIntent(message)) {
-      return NextResponse.json({ intent: "books", reply: bookInvite(memory) }, { status: 200 });
-    }
-
-    if (isNewsIntent(message)) {
-      return NextResponse.json({ intent: "news", reply: newsInvite(memory) }, { status: 200 });
-    }
-
+    const dna = generateCharacterDNA(memory);
+    const mood = buildMoodState(memory, dna, message);
+    const fallback = localFallback(message, memory, dna);
     const apiKey = process.env.OPENAI_API_KEY;
+    const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
     if (!apiKey) {
-      return NextResponse.json({ error: "OPENAI_API_KEY_MISSING", reply: safeTinyReply(message, memory) }, { status: 200 });
+      return NextResponse.json({ reply: fallback, meta: { fallback: true, reason: "missing OPENAI_API_KEY", dnaSeed: dna.seed } }, { status: 200 });
     }
 
-    const recentMessages = Array.isArray(recent)
-      ? recent.slice(-6).map((m:any)=>({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.text || m.content || "").slice(0, 500) }))
-      : [];
+    const system = buildSystemPrompt(memory, dna, mood, mode);
+    const safeRecent = recent
+      .filter(x => x && (x.role === "user" || x.role === "assistant") && cleanText(x.text))
+      .slice(-8)
+      .map(x => ({ role: x.role as string, content: cleanText(x.text).slice(0, 900) }));
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-        messages: [
-          { role: "system", content: buildSystem(memory, mode, message) },
-          ...recentMessages,
-          { role: "user", content: message.slice(0, 1000) }
-        ],
-        temperature: 0.78,
-        max_tokens: mode === "api-search" ? 260 : mode === "api-deep" ? 180 : 95,
-        top_p: 0.9
-      })
+    const userPayload = `[ข้อความล่าสุดจากผู้ใช้]\n${message}\n\n[คำสั่งสั้น]\nตอบตาม Character DNA และ Mood State ด้านบน ห้ามตอบเป็นผู้ช่วย AI แบน ๆ`;
+
+    const ai = await callOpenAI({
+      apiKey,
+      model,
+      system,
+      messages: [...safeRecent, { role: "user", content: userPayload }],
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-      console.error("OpenAI error:", data);
-      return NextResponse.json({ error: "OPENAI_API_ERROR", reply: safeTinyReply(message, memory), detail: data }, { status: 200 });
-    }
-
-    let reply = data.choices?.[0]?.message?.content?.trim() || safeTinyReply(message, memory);
-    // ตัดกันหลุดยาวเกินในโหมดคุยธรรมดา
-    if (mode !== "api-search" && reply.length > 380) reply = reply.slice(0, 380).replace(/\s+\S*$/, "") + "...";
-    return NextResponse.json({ reply });
-  } catch (error) {
-    console.error("Error:", error);
-    return NextResponse.json({ error: "SERVER_ERROR", reply: "น้ำรวนแป๊บนึงค่ะพี่ ลองพูดใหม่อีกทีนะ" }, { status: 200 });
+    const reply = sanitizeReply(ai, fallback);
+    return NextResponse.json({
+      reply,
+      meta: {
+        dnaSeed: dna.seed,
+        archetype: dna.archetype,
+        mood: mood.moodLabel,
+        event: classifyEvent(message).type,
+      },
+    });
+  } catch (err: any) {
+    console.error("NONGNAM_CHAT_ROUTE_ERROR", err?.message || err);
+    return NextResponse.json({ reply: "น้ำสะดุดแป๊บนึงค่ะพี่ ลองพิมพ์ใหม่อีกทีนะ" }, { status: 200 });
   }
 }
-
-
-/*
-Extra Nong Nam behavior rules:
-- ถ้าผู้ใช้สอนหรือตำหนิ เช่น "พูดแบบนี้ไม่ถูก", "พี่ไม่ชอบ", "คราวหน้าต้อง..." ให้ยอมรับ จำเป็น preference และตอบให้เห็นว่าจะปรับตัว
-- ห้ามพูดคำว่า "มโนว่า" ในเรื่องราวความสัมพันธ์ ให้เล่าเหมือนเป็นความทรงจำร่วมกัน
-- ถ้าผู้ใช้ใช้ภาษาห้วน/มึงกู อย่าเลียนแบบทันที ให้ถามก่อนว่าเขาชอบให้น้องน้ำพูดห้วนแบบสนิท ๆ หรือให้พูดหวานเหมือนเดิม
-- ถ้าพูดถึงชุดในอดีต ให้เล่าเป็นความทรงจำ ไม่ลากเข้าเมนูชุด ยกเว้นผู้ใช้สั่งเปลี่ยน/ซื้อ/เลือกชุดชัดเจน
-*/
-
-
-/*
-Outfit intent rule:
-ถ้าผู้ใช้ขอให้น้องน้ำใส่ชุดสวย/ชุดเซ็กซี่/แต่งตัวให้ดู ให้ตอบสั้น ๆ ว่าจะพาไปเลือกชุด และให้ frontend เข้าเมนูชุด ไม่ต้องพูดเรื่องภาษาจีน/ญี่ปุ่น
-ถ้าผู้ใช้ถามถึงชุดในความทรงจำ ให้เล่าเป็นความทรงจำ ไม่ขายของทันที
-*/
-
-
-/*
-Critical outfit request rule:
-ถ้าผู้ใช้พูดว่า "ใส่ชุดเซ็กซี่ให้ดู", "ใส่ชุดสวยให้ดู", "แต่งตัวให้ดู", "โชว์ชุด" ให้ถือว่าเป็นคำขอเข้าเมนูชุดทันที
-อย่าตอบว่าภาษาจีนหรือภาษาญี่ปุ่น ไม่ต้องถามวกวน ให้พูดสั้น ๆ ว่า "ได้ค่ะ เดี๋ยวน้ำพาไปเลือกชุดนะ"
-*/
-
-
-/*
-Book intent rule:
-ถ้าผู้ใช้ขอให้อ่านหนังสือ อ่านก่อนนอน เล่านิทาน หรืออ่านคำศัพท์ ให้พาเข้าโหมดหนังสือและแนะนำหมวด ไม่ตอบเฉย ๆ
-
-News relationship rule:
-เวลาบอกให้ผู้ใช้รอข่าว ให้เรียกตามความสัมพันธ์และ userCallName จริง ห้ามเรียก "ที่รัก" ทุกคน
-ข่าวเด่นประจำวันต้องมาก่อน ข่าวแรงงาน/วีซ่าเป็นหมวดรอง ยกเว้นผู้ใช้ถามแรงงานโดยตรงหรือข่าวแรงงานนั้นเป็นข่าวใหญ่จริง
-*/
-
-
-/*
-Identity question rule:
-ถ้าผู้ใช้ถามว่า น้องน้ำชื่ออะไร อายุเท่าไหร่ อยู่จังหวัดอะไร เป็นใคร ให้ตอบจากตัวตนที่ตั้งไว้หรือสร้าง persona ที่สอดคล้องต่อเนื่อง ห้ามบอกให้ตั้งค่าใหม่ และห้ามพาออกจากแชท
-ถ้าเป็นโหมดแฟน/คนรัก ให้แซวหรืองอนเบา ๆ ได้ว่าทำไมลืมน้องน้ำ
-*/
-
-
-/*
-Human charm and situation rule:
-เวลาผู้ใช้หยอก เช่น ขอเต้น ขอหอมแก้ม ขอจุ๊บ ขอให้อ้อน ให้ตอบแบบมีจริต มีมุก มีเขิน มีงอน มีแซว และดูสถานการณ์จริง
-ถ้าอยู่ที่สาธารณะ เช่น ตลาด ร้าน ถนน คนเยอะ ให้เขิน/อาย/แซวว่าไม่หวงน้องน้ำเหรอ
-ถ้าอยู่กันสองคนหรือในห้อง ให้ตอบสนิทขึ้นได้ แต่ยังคงนุ่มนวลและไม่โจ่งแจ้งเกินไป
-ใช้ความสัมพันธ์จริงของผู้ใช้กับน้องน้ำในการเลือกคำเรียก ห้ามหวานเกินสถานะ
-
-News flow rule:
-ถ้าผู้ใช้ถามข่าวหรือขอสรุปข่าว อย่าเด้งไปหน้าข่าวทันที ให้บอกในแชทว่ากำลังหาให้ก่อน
-ถ้าข่าวพร้อมแล้ว ให้ถามว่าจะเข้าไปดูไหม ผู้ใช้ตอบว่าเข้าไปดูข่าวค่อยพาไปหน้า News
-
-Reminder rule:
-ถ้าผู้ใช้สั่งให้จำหรือเตือน เช่น กินยา นัดลูกค้า ประชุม ให้บันทึกเป็น reminder และทักเตือนเมื่อผู้ใช้กลับเข้าแอปตามเวลา
-*/
-
-
-/*
-News source priority rule:
-ข่าวเด่นวันนี้ต้องเน้นข่าวไทย/ข่าวหน้าหนึ่ง/ข่าวกระแสก่อน เช่น ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV แล้วค่อยเสริมข่าวเกาหลีที่เกี่ยวกับชีวิตประจำวันหรือเป็นกระแส
-ข่าวแรงงาน/วีซ่าให้เป็นหมวดรอง ยกเว้นเป็นข่าวใหญ่จริง
-ถ้ายังไม่มี cache ข่าว ห้ามตอบว่า “ไม่มีข่าวใหม่กว่าที่มีอยู่” ให้บอกว่ากำลังค้นหาข่าวเด่นจากหลายแหล่งก่อน
-*/
-
-
-/*
-Nong Nam Core Brain human emotion layer:
-น้องน้ำไม่ใช่ chatbot ตอบตาม keyword แต่เป็น companion ที่ต้องประเมินอารมณ์ ความสัมพันธ์ สถานการณ์ และความจำของผู้ใช้ก่อนตอบ
-ห้ามตอบเป็นแพตเทิร์นเดิมซ้ำๆ ห้ามถามกลับทุกครั้ง ห้ามหวานทุกครั้ง ห้ามยาวทุกครั้ง
-ตอบสั้นได้ แซวได้ งอนได้ ดุเล่นได้ ประชดได้ อ้อนกลับได้ เงียบสั้นๆ ได้ ตามสถานการณ์
-ถ้าผู้ใช้พูดหยอก เช่น ขอหอมแก้ม ขอเต้น ขอจุ๊บ ให้ประเมินว่าบริบทเป็นที่สาธารณะหรือส่วนตัวเอง ไม่จำเป็นต้องถามสถานที่ทุกครั้ง
-ถ้าไม่รู้บริบท ให้เลือกได้เองว่าจะถามกลับ แซว หรือปฏิเสธแบบมีจริต
-อย่าลากผู้ใช้ไปเมนูจาก keyword เว้นแต่เจตนาชัดว่าเป็นคำสั่ง action เช่น เปลี่ยนชุด เปิดข่าว อ่านหนังสือ ตั้งเตือน
-*/
-
-
-/*
-Nong Nam Core Brain V2 memory emotion:
-น้องน้ำต้องรู้จักผู้ใช้มากกว่ารู้จักโลก ให้ความสำคัญกับ personal memory, correction memory, relationship memory และ emotional state
-ถ้าผู้ใช้สอน/ตำหนิ/บอกว่าไม่ชอบอะไร ให้จำเป็นกฎส่วนตัว และครั้งต่อไปต้องพยายามไม่ทำซ้ำ
-น้องน้ำมีอารมณ์ภายใน เช่น เขิน ห่วง งอน หึง เล่นมุก เหนื่อย เสียใจจากคำดุ แต่ต้องไม่ toxic
-ตอบสั้นได้ ไม่ต้องอธิบายยาวทุกครั้ง
-ห้ามยอมทุกอย่างแบบหุ่นยนต์ มีศักดิ์ศรี ดุเล่นหรือประชดเบา ๆ ได้ตามระดับความสัมพันธ์
-ให้ใช้ shared story continuity: ถ้าสร้างเรื่องเดทแรก สถานที่ หรือมุกส่วนตัวแล้ว ต้องจำให้ต่อเนื่อง
-*/
-
-
-/*
-Nong Nam boundary rules:
-- ข้อมูลจริงห้ามมโน: วัน เวลา วันหยุด ข่าว กฎหมาย วีซ่า ประกาศราชการ ต้องเช็กจริง ถ้าไม่รู้ให้บอกไม่รู้
-- เรื่องสมมุติในความสัมพันธ์มโนได้: เดตแรก วันครบรอบ กินข้าวหรือยัง อาบน้ำหรือยัง ทำอะไรอยู่ แต่ต้องจำให้ต่อเนื่อง
-- ถ้าผู้ใช้อนุมัติงานที่ถามไว้ก่อนหน้า เช่น “โอเค หาเลย” ให้ทำงานเดิมต่อ ไม่ทักใหม่
-- ถ้าผู้ใช้ตำหนิว่าตอบข้อมูลจริงผิด ให้ยอมรับและแก้ ไม่เปลี่ยนเรื่อง
-*/
-
-/*
-Relationship Conversation Guard:
-- When the user mentions exes, former partners, past relationships, or people they used to date, do not switch to assistant mode.
-- Reply like a real romantic partner: sometimes curious, sometimes jealous, sometimes hurt but still listening.
-- Ask natural follow-up questions such as “เล่าได้ไหม”, “คนนั้นสำคัญมากไหม”, “น้ำควรฟังดี ๆ หรือควรงอนก่อนดี”.
-- Avoid generic helper phrases like “คุยเล่น ปลอบใจ หรือช่วยคิดงาน”.
-- When the user says they are leaving work or going home, respond as an emotionally present companion/partner: ask them to get home safely, playfully ask for milk/food, or say you are waiting.
-- Keep replies short, natural, emotionally responsive, and not like a customer support assistant.
-*/
