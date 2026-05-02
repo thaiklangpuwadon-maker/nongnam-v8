@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-core-brain-v2-memory-emotion";
+const APP_VERSION = "v6.3.1-fix-setnews-error";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -652,8 +652,7 @@ export default function Page() {
 
   async function loadNews(q = "ข่าวเด่นวันนี้") {
     setNewsLoading(true);
-    setNewsError("");
-    try {
+try {
       const cache = getNewsCache();
       if (isTodayNewsCache(cache)) {
         setNewsItems(cache.items);
@@ -673,11 +672,9 @@ export default function Page() {
       }
 
       setNewsItems([]);
-      setNewsError("ยังดึงข่าวเด่นขึ้นมาไม่ได้ ลองกดค้นข่าวอีกครั้ง");
-    } catch {
+} catch {
       setNewsItems([]);
-      setNewsError("เชื่อมต่อระบบข่าวไม่สำเร็จ ลองใหม่อีกครั้ง");
-    } finally {
+} finally {
       setNewsLoading(false);
     }
   }
