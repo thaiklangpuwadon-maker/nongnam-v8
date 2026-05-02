@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.5-factual-calendar-pending-fiction";
+const APP_VERSION = "v6.3.6-fix-news-queries-name";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";

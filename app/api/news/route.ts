@@ -334,8 +334,8 @@ export async function GET(req: NextRequest) {
   const searchQueries = newsQueries;
 
   const batches = await Promise.allSettled([
-    ...queries.map(x => fetchGoogleSearch(x, "th", "TH", "TH:th")),
-    ...queries.slice(0, 6).map(x => fetchGoogleSearch(x, "ko", "KR", "KR:ko")),
+    ...newsQueries.map(x => fetchGoogleSearch(x, "th", "TH", "TH:th")),
+    ...newsQueries.slice(0, 6).map(x => fetchGoogleSearch(x, "ko", "KR", "KR:ko")),
     fetchTopStories("th", "TH", "TH:th"),
     fetchTopStories("ko", "KR", "KR:ko")
   ]);
