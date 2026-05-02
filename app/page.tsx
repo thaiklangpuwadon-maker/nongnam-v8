@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-strict-setup-reset-only";
+const APP_VERSION = "v6.3.1-strict-setup-reset-syntaxfix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -895,13 +895,7 @@ export default function Page() {
 
   function resetIdentityAndMemory() {
     const ok = window.confirm(
-      "รีเซ็ตตัวตนและความจำน้องน้ำ?
-
-ถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน เพชรในเครื่องนี้ และเรื่องสำคัญที่เคยบันทึกไว้
-
-หลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น
-
-ยืนยันหรือไม่?"
+      "รีเซ็ตตัวตนและความจำน้องน้ำ?\n\nถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน เพชรในเครื่องนี้ และเรื่องสำคัญที่เคยบันทึกไว้\n\nหลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น\n\nยืนยันหรือไม่?"
     );
     if (!ok) return;
 
