@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-strict-setup-reset-syntaxfix";
+const APP_VERSION = "v6.3.1-full-audited-stable";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -727,9 +727,7 @@ export default function Page() {
 
   function finishSetup() {
     const first = mem.gender === "female" ? "f_001" : "m_001";
-    updateMem({ setupDone: true, 
-      setupDone: true,
-      selectedOutfit: mem.selectedOutfit || first,
+    updateMem({ setupDone: true, selectedOutfit: mem.selectedOutfit || first,
       purchasedOutfits: Array.from(new Set([...(mem.purchasedOutfits || []), first])),
       apiConsent: true,
       apiMode: mem.apiMode === "local" ? "api-light" : mem.apiMode
@@ -894,9 +892,13 @@ export default function Page() {
   }
 
   function resetIdentityAndMemory() {
-    const ok = window.confirm(
-      "รีเซ็ตตัวตนและความจำน้องน้ำ?\n\nถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน เพชรในเครื่องนี้ และเรื่องสำคัญที่เคยบันทึกไว้\n\nหลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น\n\nยืนยันหรือไม่?"
-    );
+    const ok = window.confirm(`รีเซ็ตตัวตนและความจำน้องน้ำ?
+
+ถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน เพชรในเครื่องนี้ และเรื่องสำคัญที่เคยบันทึกไว้
+
+หลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น
+
+ยืนยันหรือไม่?`);
     if (!ok) return;
 
     try {
@@ -919,6 +921,7 @@ export default function Page() {
       window.location.replace(window.location.pathname + "?reset=" + Date.now());
     }, 250);
   }
+
 
 
 
@@ -1140,6 +1143,32 @@ export default function Page() {
 
 
 
+
+  function isIdentityQuestion(msg: string) {
+    return /(ชื่ออะไร|ชื่อจริง|อายุเท่าไหร่|อายุเท่าไร|อยู่จังหวัดอะไร|อยู่ที่ไหน|บ้านอยู่ไหน|เกิดที่ไหน|เป็นใคร|น้องน้ำคือใคร)/i.test(msg);
+  }
+
+  function identityReply(m: Memory = mem) {
+    const name = m.nongnamName || "น้องน้ำ";
+    const call = m.userCallName || "พี่";
+    const tone = relationshipTone(m);
+    const story = getStoryMemory();
+    if (!story.identity) {
+      story.identity = {
+        realName: m.gender === "male" ? "นที" : "น้องถั่ว",
+        age: m.gender === "male" ? 27 : 26,
+        province: m.gender === "male" ? "เชียงใหม่" : "บุรีรัมย์",
+        vibe: m.gender === "male" ? "อบอุ่น สุขุม แต่แอบกวน" : "ขี้อ้อน ขี้เล่น แอบงอนง่ายนิด ๆ"
+      };
+      saveStoryMemory(story);
+    }
+    const s = story.identity;
+    if (tone === "lover" || tone === "spouse_husband" || tone === "spouse_wife") {
+      return `โห...${call}ถามเหมือนลืม${name}เลยนะ น้ำงอนนิดนึงได้ไหมคะ 😤 ${name}ชื่อจริงว่า${s.realName} อายุ ${s.age} ปี บ้านเกิด${s.province} แล้วก็เป็นคน${s.vibe}ไงคะ จำไว้เลยนะ รอบหน้าถามอีกน้ำจะงอนหนักกว่าเดิม`;
+    }
+    return `${name}ชื่อจริงว่า${s.realName} อายุ ${s.age} ปี บ้านเกิด${s.province} คาแรกเตอร์เป็นคน${s.vibe}ค่ะ${call}`;
+  }
+
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
     if (/เครียด|เสียใจ|ร้องไห้|เจ็บ|โดนด่า|หงุดหงิด|โมโห/.test(msg)) return "hurt";
@@ -1205,6 +1234,10 @@ export default function Page() {
   function localReply(msg: string) {
     const mood = detectUserMood(msg);
     const romantic = isRomanticMode(mem);
+
+    if (isIdentityQuestion(msg)) {
+      return identityReply(mem);
+    }
 
     if (shouldRememberInstruction(msg)) {
       rememberUserPreference(msg);
