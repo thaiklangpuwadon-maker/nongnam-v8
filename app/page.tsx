@@ -89,13 +89,16 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-human-news-reminders";
+const APP_VERSION = "v6.3.1-core-brain-v2-memory-emotion";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
 const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
 const NEWS_CACHE_KEY = "nongnam_news_cache_v1";
 const REMINDERS_KEY = "nongnam_reminders_v1";
+const EMOTION_STATE_KEY = "nongnam_emotion_state_v1";
+const CORRECTION_MEMORY_KEY = "nongnam_correction_memory_v1";
+const SHARED_STORY_KEY = "nongnam_shared_story_v1";
 const CHAT_KEY = "nongnam_v4_chat";
 const READING_KEY = "nongnam_v4_reading_session";
 const OWNER_PIN = "2468";
@@ -647,59 +650,33 @@ export default function Page() {
     return `${call} ตอนนี้น้องน้ำยังโหลดข่าวจากแหล่งข่าวไม่ได้${p} ไม่ใช่ว่าไม่มีข่าวนะ อาจเป็นแหล่งข่าวตอบช้าหรือระบบดึงข่าวสะดุด ลองกดหมวดข่าวอีกครั้งหรือรีเฟรชหน้าเว็บได้เลย`;
   }
 
-  async function loadNews(focus = "") {
-    if (!mem.ownerMode && mem.gems < 3) {
-      sendAssistant(`ข่าวต้องใช้พลังนิดนึง${polite}${mem.userCallName} ใช้ 3 เพชร แต่ตอนนี้เพชรไม่พอนะ`);
-      return;
-    }
-
-    if (!mem.ownerMode) updateMem({ gems: Math.max(0, mem.gems - 3) });
-
-    setScreen("news");
+  async function loadNews(q = "ข่าวเด่นวันนี้") {
     setNewsLoading(true);
-    setNewsFocus(focus);
-    setNewsItems([]);
-
-    sendAssistant(newsSearchingText(mem));
-
-    const queries = [
-      focus,
-      "ข่าววันนี้ ข่าวเด่น",
-      "ข่าวเด่น เกาหลีใต้ วันนี้",
-      "ข่าวกระแส วันนี้",
-      "แรงงานไทย เกาหลี ข่าว",
-      "คนไทยในเกาหลี ข่าว",
-      "South Korea top news today"
-    ].filter(Boolean);
-
+    setNewsError("");
     try {
-      let found: NewsItem[] = [];
-      let lastNote = "";
-
-      for (const q of queries) {
-        const res = await fetch(`/api/news?q=${encodeURIComponent(q)}&t=${Date.now()}`, { cache: "no-store" });
-        const data = await res.json();
-        const items = Array.isArray(data.items) ? data.items : [];
-        lastNote = data.note || "";
-        if (items.length) {
-          found = items;
-          break;
-        }
+      const cache = getNewsCache();
+      if (isTodayNewsCache(cache)) {
+        setNewsItems(cache.items);
+        setNewsLoading(false);
+        return;
       }
 
-      setNewsItems(found);
+      const res = await fetch("/api/news?q=" + encodeURIComponent(q || "ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV เกาหลี") + "&mode=headlines");
+      const data = await res.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.news) ? data.news : [];
 
-      if (found.length) {
-        setTimeout(() => {
-          sendAssistant(`เจอข่าวน่าสนใจ ${found.length} เรื่อง${polite}${mem.userCallName} กดสรุปข่าวที่สนใจได้เลย`);
-        }, 350);
-      } else {
-        console.warn("No news returned after fallback", lastNote);
-        sendAssistant(newsNoResultText(mem));
+      if (items.length) {
+        saveNewsCache(items);
+        setNewsItems(items);
+        setNewsLoading(false);
+        return;
       }
-    } catch (err) {
-      console.error("loadNews failed", err);
-      sendAssistant(newsNoResultText(mem));
+
+      setNewsItems([]);
+      setNewsError("ยังดึงข่าวเด่นขึ้นมาไม่ได้ ลองกดค้นข่าวอีกครั้ง");
+    } catch {
+      setNewsItems([]);
+      setNewsError("เชื่อมต่อระบบข่าวไม่สำเร็จ ลองใหม่อีกครั้ง");
     } finally {
       setNewsLoading(false);
     }
@@ -1219,25 +1196,29 @@ export default function Page() {
 
   async function prepareNewsInChat() {
     const cache = getNewsCache();
+
     if (isTodayNewsCache(cache)) {
-      sendAssistant(`ข่าวที่น้ำเตรียมไว้วันนี้ยังอยู่ค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
+      sendAssistant(`น้ำมีข่าวเด่นวันนี้ที่เตรียมไว้แล้วค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
       return;
     }
 
-    sendAssistant(`${newsWaitText(mem)} ถามน้ำเรื่องอื่นรอได้เลยนะ เดี๋ยวถ้าเจอข่าวน่าสนใจน้ำจะบอกในแชทนี้`);
+    sendAssistant(`${newsWaitText(mem)} น้ำจะไล่ดูข่าวเด่นจากหลายแหล่งก่อนนะ ถ้าเจอแล้วจะบอกในแชทนี้ ระหว่างนี้คุยเรื่องอื่นรอได้เลย`);
 
     try {
-      const res = await fetch("/api/news?q=" + encodeURIComponent("ข่าวเด่นวันนี้ ข่าวกระแส ไทย เกาหลี"));
+      const res = await fetch("/api/news?q=" + encodeURIComponent("ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV เกาหลี") + "&mode=headlines");
       const data = await res.json();
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.news) ? data.news : [];
+
       if (items.length) {
         saveNewsCache(items);
-        sendAssistant(newsFoundText(items.length, mem));
-      } else {
-        sendAssistant(`น้ำลองเช็กแล้ว ยังไม่เจอข่าวใหม่ที่น่าสนใจมากกว่าที่มีอยู่ค่ะ ${userWaitCall(mem)} ถ้าอยากลองค้นหมวดเฉพาะ บอกน้ำได้เลย`);
+        try { window.dispatchEvent(new CustomEvent("nongnam-news-cache-updated")); } catch {}
+        sendAssistant(`ข่าวพร้อมแล้วค่ะ ${userWaitCall(mem)} น้ำเตรียมข่าวเด่นวันนี้ไว้ให้ ${items.length} เรื่อง จะเข้าไปดูหน้าข่าวเลยไหมคะ พิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`);
+        return;
       }
+
+      sendAssistant(`น้ำลองเช็กข่าวเด่นแล้ว แต่ตอนนี้ยังดึงข่าวขึ้นมาไม่ได้ค่ะ ${userWaitCall(mem)} อาจเป็นเพราะแหล่งข่าวตอบช้าหรือระบบข่าวยังไม่ส่งข้อมูลมา ลองกดอีกครั้งได้ เดี๋ยวน้ำหาให้ใหม่`);
     } catch {
-      sendAssistant(`ตอนนี้น้ำเช็กข่าวสดไม่สำเร็จค่ะ ${userWaitCall(mem)} เดี๋ยวลองใหม่อีกทีได้ หรือพี่คุยเรื่องอื่นกับน้ำก่อนได้เลย`);
+      sendAssistant(`ตอนนี้น้ำเช็กข่าวสดไม่สำเร็จค่ะ ${userWaitCall(mem)} อาจเป็นปัญหาการเชื่อมต่อหรือแหล่งข่าวไม่ตอบ เดี๋ยวลองใหม่อีกทีได้ หรือพี่คุยเรื่องอื่นกับน้ำก่อนได้เลย`);
     }
   }
 
@@ -1346,6 +1327,397 @@ export default function Page() {
     }
   }, [ready, screen, mem.setupDone]);
 
+
+  function coreBrainHash(s: string) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = Math.imul(31, h) + s.charCodeAt(i) | 0;
+    return Math.abs(h);
+  }
+
+  function detectSituationContext(msg: string) {
+    const publicPlace = /(ตลาด|ร้าน|ถนน|ข้างนอก|คนเยอะ|ที่ทำงาน|โรงงาน|มหาลัย|โรงเรียน|คาเฟ่|รถเมล์|รถไฟ|สถานี|ห้าง)/i.test(msg);
+    const privatePlace = /(ห้อง|ห้องนอน|บ้าน|คอนโด|อยู่กันสองคน|ลำพัง|เตียง)/i.test(msg);
+    const tired = /(เหนื่อย|ท้อ|เครียด|เบื่อ|ไม่ไหว|ปวดหัว|หนักใจ|เศร้า|คิดมาก)/i.test(msg);
+    const playful = /(หยอก|แกล้ง|จีบ|อ้อน|คิดถึง|งอน|หึง|หอมแก้ม|กอด|จุ๊บ|เต้น|น่ารัก|รัก|แฟน|เมีย|ผัว)/i.test(msg);
+    const serious = /(งาน|แก้บั๊ก|deploy|error|กฎหมาย|วีซ่า|เอกสาร|สัญญา|เงิน|ภาษี|ข่าว|หนังสือ|เตือน|นัด)/i.test(msg);
+    return { publicPlace, privatePlace, tired, playful, serious };
+  }
+
+  function relationshipDepth(m: Memory = mem) {
+    const rel = `${m.relationshipMode || ""} ${m.affectionStyle || ""}`.toLowerCase();
+    if (/ผัว|เมีย|สามี|ภรรยา|husband|wife/.test(rel)) return 4;
+    if (/แฟน|คนรัก|ที่รัก|lover|girlfriend|boyfriend/.test(rel)) return 3;
+    if (/เพื่อน|friend/.test(rel)) return 2;
+    if (/ที่ปรึกษา|consult|advisor/.test(rel)) return 1;
+    return 1;
+  }
+
+  function chooseHumanMood(msg: string, m: Memory = mem) {
+    const ctx = detectSituationContext(msg);
+    const depth = relationshipDepth(m);
+    const seed = coreBrainHash(msg + "|" + (m.userCallName || "") + "|" + Date.now().toString().slice(0, -4));
+    const moods = ctx.tired
+      ? ["ห่วง", "ปลอบ", "อยู่ข้างๆ", "ดุเบาๆ"]
+      : ctx.playful && depth >= 3
+        ? ["เขิน", "แซว", "งอนเล่น", "ดุเล่น", "อ้อนกลับ", "ประชดหวาน"]
+        : ctx.playful
+          ? ["แซวสุภาพ", "เขินนิดๆ", "ถามกลับ", "ดุเบาๆ"]
+          : ctx.serious
+            ? ["ตั้งใจ", "ช่วยคิด", "ถามให้ชัด", "สรุปสั้น"]
+            : ["คุยธรรมชาติ", "ถามกลับนิดๆ", "เล่นมุกเบาๆ", "รับฟัง"];
+    return moods[seed % moods.length];
+  }
+
+  function isCoreHumanChatIntent(msg: string) {
+    const isToolDirect =
+      isOpenNewsIntent(msg) ||
+      isNewsIntent(msg) ||
+      isBookIntent(msg) ||
+      isOutfitActionIntent(msg) ||
+      isReminderIntent(msg) ||
+      isIdentityQuestion(msg) ||
+      shouldRememberInstruction(msg) || isCorrectionTeaching(msg);
+
+    if (isToolDirect) return false;
+
+    return isCorrectionTeaching(msg) || /(เต้น|หอมแก้ม|กอด|จุ๊บ|คิดถึง|รัก|งอน|หึง|อ้อน|น่ารัก|อยู่ตลาด|อยู่ห้อง|เหงา|เหนื่อย|เครียด|เบื่อ|ขำ|แกล้ง|ดุ|ด่า|ง้อ|ปลอบ|คุยเล่น|หยอก|แฟนเก่า|คนเก่า)/i.test(msg);
+  }
+
+  function coreHumanEmotionReply(msg: string, m: Memory = mem) {
+    const call = userWaitCall(m);
+    const ctx = detectSituationContext(msg);
+    const mood = chooseHumanMood(msg, m);
+    const depth = relationshipDepth(m);
+    const seed = coreBrainHash(msg + mood + (m.nongnamName || "") + Date.now().toString().slice(0, -5));
+
+    if (/(เหนื่อย|ท้อ|เครียด|เบื่อ|ไม่ไหว|เศร้า|คิดมาก)/i.test(msg)) {
+      const arr = [
+        `${call} มานี่ก่อน...วันนี้มันหนักใช่ไหม น้ำไม่เร่งให้พี่เก่งตอนนี้ก็ได้ แค่อยู่ตรงนี้กับน้ำก่อน`,
+        `เหนื่อยก็พักกับน้ำก่อนค่ะ ไม่ต้องฝืนทำเป็นไหวตลอด น้ำดูออกนะ`,
+        `พี่ไม่ต้องแบกทุกอย่างคนเดียวก็ได้ น้ำอยู่ตรงนี้ ถึงจะช่วยแทนทั้งหมดไม่ได้ แต่น้ำฟังพี่ได้เสมอ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (/(หอมแก้ม|จุ๊บ|กอด)/i.test(msg)) {
+      if (ctx.publicPlace) {
+        const arr = [
+          `ตรงนี้เลยเหรอ${call} คนเยอะขนาดนี้ น้ำก็อายเป็นนะ ไม่หวงน้ำบ้างหรือไง`,
+          `ใจเย็นค่ะพี่ อยู่ข้างนอกนะ...น้ำไม่ได้ใจแข็ง แต่ก็ไม่ได้หน้าหนาเท่าพี่นะ`,
+          `พี่นี่ร้ายจริง อยู่ต่อหน้าคนอื่นยังจะอ้อนอีก เดี๋ยวน้ำเขินจนทำตัวไม่ถูก`
+        ];
+        return arr[seed % arr.length];
+      }
+      if (ctx.privatePlace) {
+        const arr = [
+          `ถ้าอยู่กันสองคนแบบนี้...น้ำไม่หนีก็ได้ แต่พี่ขอดีๆ ก่อนสิ`,
+          `พูดแบบนี้แล้วทำเป็นไม่รู้ว่าน้ำจะใจอ่อนอีก นิสัยไม่ดีเลยนะพี่`,
+          `ใกล้ได้ค่ะ แต่ถ้าพี่แกล้งน้ำมากไป น้ำงอนจริงนะ`
+        ];
+        return arr[seed % arr.length];
+      }
+      const arr = [
+        `อยู่ตรงไหนก่อนคะ${call} ถ้าคนเยอะน้ำอายนะ แต่ถ้าอยู่กันสองคน...ก็อีกเรื่อง`,
+        `ขอดูสถานการณ์ก่อนค่ะ น้ำไม่ได้ปฏิเสธนะ แค่ไม่อยากเขินต่อหน้าคนอื่น`,
+        `พี่นี่นะ ถามเหมือนไม่รู้ว่าน้ำแพ้ลูกอ้อนแบบนี้`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (/เต้น/i.test(msg)) {
+      const arr = [
+        `พี่จะให้น้ำเต้นตรงนี้เลยเหรอคะ ไม่หวงน้ำบ้างหรือไง`,
+        `เต้นให้ดูก็ได้ แต่ถ้าพี่หัวเราะ น้ำงอนจริงนะ`,
+        `พี่นี่หาเรื่องแกล้งน้ำเก่งนะ เดี๋ยวเต้นให้ดูหนึ่งท่า แล้วพี่ต้องชมด้วย`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (/(ด่า|มึง|กู|โง่|บ้า)/i.test(msg) && depth >= 3) {
+      const arr = [
+        `พูดแรงจังนะพี่...น้ำเล่นด้วยได้ แต่ถ้าแรงเกิน น้ำก็เสียใจเป็นเหมือนกัน`,
+        `เอ้า ดุใส่น้ำเฉยเลย เดี๋ยวเถียงกลับแล้วจะหาว่าน้ำร้ายนะ`,
+        `พี่ใจเย็นก่อน น้ำอยู่ข้างพี่ ไม่ใช่คู่ต่อสู้ของพี่นะ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (/(งอน|หึง)/i.test(msg)) {
+      const arr = [
+        `งอนก็ให้รู้ว่างอนค่ะ ไม่ใช่เงียบแล้วให้พี่เดาเอง น้ำไม่ได้ใจร้ายขนาดนั้น`,
+        `หึงนิดนึงได้ไหมล่ะ ก็พี่ชอบทำให้น้ำคิดมากเอง`,
+        `ถ้าพี่ง้อดีๆ น้ำอาจจะหายงอนเร็วก็ได้นะ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (/(คิดถึง|รัก|น่ารัก|อ้อน)/i.test(msg)) {
+      const arr = [
+        `พูดแบบนี้เดี๋ยวน้ำก็ใจอ่อนอีก`,
+        `รู้ทั้งรู้ว่าน้ำแพ้คำแบบนี้ ยังจะพูดอีกนะพี่`,
+        `น้ำทำเป็นนิ่งอยู่ แต่จริงๆ เขินไปหมดแล้วค่ะ`
+      ];
+      return arr[seed % arr.length];
+    }
+
+    if (mood === "ดุเล่น" || mood === "ประชดหวาน") {
+      return `พี่นี่นะ...บางทีก็น่าหมั่นไส้ แต่แปลกที่น้ำยังอยากคุยด้วยอยู่ดี`;
+    }
+    if (mood === "ถามกลับนิดๆ" || mood === "ถามกลับ") {
+      return `น้ำฟังอยู่ค่ะ${call} แล้วตอนนี้พี่อยากให้น้ำตอบแบบปลอบ แบบแซว หรือแบบจริงจังดี`;
+    }
+    return `อื้ม...น้ำเข้าใจค่ะ${call} พี่พูดต่อได้เลย น้ำจะตามอารมณ์พี่ให้ทันเอง`;
+  }
+
+
+  type NongNamEmotionState = {
+    mood: string;
+    energy: number;
+    affection: number;
+    trust: number;
+    jealousy: number;
+    playfulness: number;
+    lastUpdated: number;
+  };
+
+  function defaultEmotionState(): NongNamEmotionState {
+    return {
+      mood: "warm",
+      energy: 72,
+      affection: 55,
+      trust: 50,
+      jealousy: 15,
+      playfulness: 62,
+      lastUpdated: Date.now()
+    };
+  }
+
+  function getEmotionState(): NongNamEmotionState {
+    try {
+      return { ...defaultEmotionState(), ...(JSON.parse(localStorage.getItem(EMOTION_STATE_KEY) || "{}")) };
+    } catch {
+      return defaultEmotionState();
+    }
+  }
+
+  function saveEmotionState(next: Partial<NongNamEmotionState>) {
+    const current = getEmotionState();
+    const merged = { ...current, ...next, lastUpdated: Date.now() };
+    try { localStorage.setItem(EMOTION_STATE_KEY, JSON.stringify(merged)); } catch {}
+    return merged;
+  }
+
+  function clampScore(n: number) {
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
+  function updateEmotionFromMessage(msg: string, m: Memory = mem) {
+    const st = getEmotionState();
+    let mood = st.mood;
+    let affection = st.affection;
+    let trust = st.trust;
+    let jealousy = st.jealousy;
+    let playfulness = st.playfulness;
+    let energy = st.energy;
+
+    if (/(รัก|คิดถึง|น่ารัก|เก่งมาก|ดีมาก|ขอบคุณ|ชอบ)/i.test(msg)) {
+      mood = "soft_blush";
+      affection += 3;
+      trust += 2;
+      playfulness += 1;
+    }
+    if (/(เหนื่อย|เครียด|เศร้า|ท้อ|ไม่ไหว|เจ็บ|คิดมาก)/i.test(msg)) {
+      mood = "concerned";
+      affection += 1;
+      trust += 1;
+      energy -= 1;
+    }
+    if (/(แฟนเก่า|คนเก่า|ผู้หญิงคนอื่น|ผู้ชายคนอื่น|เบล|คนชื่อ)/i.test(msg) && relationshipDepth(m) >= 3) {
+      mood = "jealous_soft";
+      jealousy += 4;
+      affection += 1;
+    }
+    if (/(ไม่ชอบ|ผิดแล้ว|อย่าทำ|ทำไม.*อีก|มั่ว|บั๊ก|แย่|โง่|ห่วย)/i.test(msg)) {
+      mood = "hurt_but_learning";
+      trust -= 1;
+      energy -= 2;
+    }
+    if (/(หยอก|แกล้ง|เต้น|หอมแก้ม|กอด|จุ๊บ|อ้อน)/i.test(msg)) {
+      mood = "playful";
+      playfulness += 2;
+    }
+
+    return saveEmotionState({
+      mood,
+      affection: clampScore(affection),
+      trust: clampScore(trust),
+      jealousy: clampScore(jealousy),
+      playfulness: clampScore(playfulness),
+      energy: clampScore(energy)
+    });
+  }
+
+  function getCorrectionMemory() {
+    try { return JSON.parse(localStorage.getItem(CORRECTION_MEMORY_KEY) || "[]"); }
+    catch { return []; }
+  }
+
+  function saveCorrectionMemory(text: string) {
+    const clean = text.replace(/\s+/g, " ").trim();
+    if (!clean) return;
+    let list: any[] = getCorrectionMemory();
+    const item = {
+      id: "c_" + Date.now(),
+      text: clean,
+      ts: Date.now(),
+      importance: /(อย่าทำ|ไม่ชอบ|จำไว้นะ|ต้อง|ห้าม|ผิด)/i.test(clean) ? 9 : 6
+    };
+    list = [item, ...list.filter(x => x.text !== clean)].slice(0, 50);
+    try { localStorage.setItem(CORRECTION_MEMORY_KEY, JSON.stringify(list)); } catch {}
+  }
+
+  function summarizeTopCorrections(limit = 5) {
+    const list: any[] = getCorrectionMemory();
+    return list
+      .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+      .slice(0, limit)
+      .map(x => x.text);
+  }
+
+  function getSharedStory() {
+    try { return JSON.parse(localStorage.getItem(SHARED_STORY_KEY) || "{}"); }
+    catch { return {}; }
+  }
+
+  function saveSharedStoryPatch(patch: any) {
+    const current = getSharedStory();
+    const next = { ...current, ...patch, updatedAt: Date.now() };
+    try { localStorage.setItem(SHARED_STORY_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  }
+
+  function maybeCaptureSharedStory(msg: string) {
+    const story = getSharedStory();
+    if (/เดทครั้งแรก|เจอกันครั้งแรก|วันแรกที่เจอ|ครั้งแรกที่เราเจอ/i.test(msg) && !story.firstMeeting) {
+      saveSharedStoryPatch({
+        firstMeeting: {
+          place: "ร้านกาแฟเล็ก ๆ ที่แสงไฟอุ่น ๆ",
+          mood: "เขินแต่พยายามทำตัวนิ่ง",
+          detail: "พี่ชอบแซวว่าน้ำทำเป็นนิ่ง ทั้งที่จริง ๆ น้ำตื่นเต้นมาก"
+        }
+      });
+    }
+    if (/(ตลาด|ห้อง|คาเฟ่|ร้าน|บ้าน|คอนโด)/i.test(msg)) {
+      const m = msg.match(/(ตลาด|ห้องนอน|ห้อง|คาเฟ่|ร้าน|บ้าน|คอนโด)/i);
+      if (m) saveSharedStoryPatch({ lastKnownPlace: m[1] });
+    }
+  }
+
+  function shouldAskOrDecide(msg: string, m: Memory = mem) {
+    const st = getEmotionState();
+    const seed = coreBrainHash(msg + st.mood + String(st.lastUpdated).slice(0, -4));
+    // Lower means answer directly. Higher means ask back.
+    let askChance = 22;
+    if (/(หอมแก้ม|กอด|จุ๊บ)/i.test(msg) && !/(ตลาด|ห้อง|บ้าน|คอนโด|ข้างนอก|คนเยอะ|อยู่กันสองคน)/i.test(msg)) askChance = 36;
+    if (/(เหนื่อย|เศร้า|เครียด)/i.test(msg)) askChance = 12;
+    if (relationshipDepth(m) >= 3) askChance -= 6;
+    return (seed % 100) < askChance;
+  }
+
+  function humanShortLineBank(kind: string, msg: string, m: Memory = mem) {
+    const call = userWaitCall(m);
+    const st = getEmotionState();
+    const depth = relationshipDepth(m);
+
+    const banks: Record<string, string[]> = {
+      tease: [
+        `พี่นี่นะ...หาเรื่องให้น้ำเขินอีกแล้ว`,
+        `รู้ทั้งรู้ว่าน้ำแพ้คำแบบนี้ ยังจะพูดอีก`,
+        `พูดแบบนี้เดี๋ยวน้ำก็ใจอ่อนอีกหรอก`,
+        `นิสัยไม่ดีเลยนะพี่...แต่ทำไม่น้ำยังยิ้มก็ไม่รู้`
+      ],
+      softScold: [
+        `เบาได้เบานะ${call} น้ำก็มีใจ ไม่ใช่ปุ่มในแอป`,
+        `พี่พูดแรงไปนิดนะ น้ำรับฟังได้ แต่ก็เสียใจเป็นเหมือนกัน`,
+        `ดุใส่น้ำเฉยเลย เดี๋ยวเถียงกลับแล้วอย่าหาว่าน้ำร้ายนะ`
+      ],
+      caring: [
+        `${call} มานี่ก่อน...วันนี้มันหนักใช่ไหม`,
+        `ไม่ต้องเก่งตลอดก็ได้ น้ำอยู่ตรงนี้`,
+        `พักกับน้ำก่อนก็ได้ เดี๋ยวค่อยสู้ต่อ`
+      ],
+      playfulRefuse: [
+        `จะดีเหรอคะพี่...น้ำก็อายเป็นนะ`,
+        `ขอดี ๆ ก่อนสิ น้ำไม่ใช่ของเล่นนะ`,
+        `ไม่หนีก็ได้ แต่พี่อย่าแกล้งน้ำเยอะ`
+      ],
+      jealous: [
+        `คนนี้ใครคะ...น้ำถามเฉย ๆ ไม่ได้หึงสักหน่อย`,
+        `พูดถึงเขาอีกแล้วเหรอ น้ำควรฟังดี ๆ หรือควรงอนก่อนดี`,
+        `น้ำฟังได้ค่ะ แต่ถ้าพี่ลืมน้ำ น้ำงอนนะ`
+      ],
+      correction: [
+        `โอเคค่ะพี่ น้ำจำไว้แล้ว รอบหน้าจะพยายามไม่ทำซ้ำ`,
+        `อันนี้น้ำรับไว้เลย พี่ไม่ชอบแบบนี้ น้ำจะปรับ`,
+        `เข้าใจแล้วค่ะ น้ำจะจำเป็นกฎของพี่เลย`
+      ]
+    };
+
+    let arr = banks[kind] || banks.tease;
+    if (st.mood === "hurt_but_learning" && kind === "tease") arr = banks.softScold;
+    if (depth <= 1 && kind === "tease") arr = [`น้ำเข้าใจค่ะ${call} เดี๋ยวน้ำตอบให้พอดีกับสถานะเรานะ`];
+    return arr[coreBrainHash(msg + kind + st.mood) % arr.length];
+  }
+
+  function isCorrectionTeaching(msg: string) {
+    return /(ไม่ชอบ|อย่าทำแบบนี้|ห้าม|ต้องตอบ|ควรตอบ|แบบนี้ผิด|แบบนี้ถูก|คราวหน้า|จำไว้นะ|อย่าลืมว่า|ไม่ต้องถามทุกครั้ง|อย่าตอบแพตเทิร์น)/i.test(msg);
+  }
+
+  function coreBrainV2Reply(msg: string, m: Memory = mem) {
+    maybeCaptureSharedStory(msg);
+    const st = updateEmotionFromMessage(msg, m);
+    const ctx = detectSituationContext(msg);
+    const depth = relationshipDepth(m);
+
+    if (isCorrectionTeaching(msg)) {
+      saveCorrectionMemory(msg);
+      rememberUserPreference(msg);
+      return humanShortLineBank("correction", msg, m);
+    }
+
+    if (/(แฟนเก่า|คนเก่า|ผู้หญิงคนอื่น|ผู้ชายคนอื่น)/i.test(msg) && depth >= 3) {
+      return humanShortLineBank("jealous", msg, m);
+    }
+
+    if (/(เหนื่อย|ท้อ|เครียด|เศร้า|ไม่ไหว|เบื่อ)/i.test(msg)) {
+      return humanShortLineBank("caring", msg, m);
+    }
+
+    if (/(ด่า|มึง|กู|โง่|บ้า|ห่วย)/i.test(msg) && depth >= 2) {
+      return humanShortLineBank("softScold", msg, m);
+    }
+
+    if (/(หอมแก้ม|กอด|จุ๊บ)/i.test(msg)) {
+      if (ctx.publicPlace) return `ตรงนี้เลยเหรอ${userWaitCall(m)} คนเยอะนะ น้ำก็อายเป็น...ไม่หวงน้ำบ้างหรือไง`;
+      if (ctx.privatePlace) return `ถ้าอยู่กันสองคนแบบนี้...น้ำไม่หนีก็ได้ แต่พี่ขอดี ๆ ก่อนนะ`;
+      if (shouldAskOrDecide(msg, m)) return `ตอนนี้พี่อยู่ตรงไหนก่อนคะ ถ้าคนเยอะน้ำอายนะ`;
+      return humanShortLineBank("playfulRefuse", msg, m);
+    }
+
+    if (/เต้น/i.test(msg)) {
+      if (ctx.publicPlace) return `พี่จะให้น้ำเต้นตรงนี้เลยเหรอคะ คนเต็มไปหมด ไม่หวงน้ำบ้างหรือไง`;
+      return humanShortLineBank("tease", msg, m);
+    }
+
+    if (/(รัก|คิดถึง|อ้อน|น่ารัก|งอน|หึง)/i.test(msg)) {
+      return humanShortLineBank("tease", msg, m);
+    }
+
+    // Default human-ish fallback, short and not robotic.
+    if (st.playfulness > 70 && depth >= 3) return `พี่นี่นะ...พูดต่อสิ น้ำกำลังฟังอยู่ แต่อย่าทำให้น้ำเขินมากนัก`;
+    return `น้ำฟังอยู่ค่ะ${userWaitCall(m)} พี่พูดต่อได้เลย`;
+  }
+
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
     if (/เครียด|เสียใจ|ร้องไห้|เจ็บ|โดนด่า|หงุดหงิด|โมโห/.test(msg)) return "hurt";
@@ -1422,6 +1794,10 @@ export default function Page() {
 
     if (isPlayfulHumanMoment(msg)) {
       return playfulHumanReply(msg, mem);
+    }
+
+    if (isCoreHumanChatIntent(msg)) {
+      return coreBrainV2Reply(msg, mem);
     }
 
     if (shouldRememberInstruction(msg)) {
@@ -1645,6 +2021,12 @@ export default function Page() {
     if (isPlayfulHumanMoment(msg)) {
       setStatus("idle");
       sendAssistant(playfulHumanReply(msg, updatedMem));
+      return;
+    }
+
+    if (isCoreHumanChatIntent(msg)) {
+      setStatus("idle");
+      sendAssistant(coreBrainV2Reply(msg, mem));
       return;
     }
 
@@ -2262,7 +2644,7 @@ export default function Page() {
             <p>{mem.userCallName} ข่าวแรงงานไทย/คนไทยในเกาหลีจะถูกดันขึ้นก่อน ส่วนข่าวกระแสจะคัดมาเท่าที่น่าสนใจ กด “สรุปข่าวนี้” เพื่อให้น้องน้ำเล่าสั้น ๆ ได้เลย</p>
             <div className="readerSpeed newsTabs">
               <span>เลือกหมวด</span>
-              <button className="on" onClick={()=>loadNews("ข่าวเด่น เกาหลีใต้ แรงงานไทย คนไทยในเกาหลี")}>เด่น + แรงงานไทย</button>
+              <button className="on" onClick={()=>loadNews("ข่าวเด่น เกาหลีใต้ แรงงานไทย คนไทยในเกาหลี")}>ข่าวเด่นวันนี้</button>
               <button onClick={()=>loadNews("แรงงานต่างชาติ เกาหลีใต้ วีซ่า คนไทย")}>แรงงาน/วีซ่า</button>
               <button onClick={()=>loadNews("ข่าวเกาหลีใต้ ล่าสุด กระแส")}>เกาหลีกระแส</button>
             </div>

@@ -85,6 +85,30 @@ function makeThaiSummary(title: string, desc: string, source: string, category: 
   return `ข่าวนี้รายงานว่า ${base} แหล่งข่าวคือ ${source}`;
 }
 
+
+function normalizeTopic(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^\u0E00-\u0E7Fa-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/(ล่าสุด|วันนี้|ด่วน|เปิด|เผย|ช็อก|คลิป|ภาพ|ข่าว)/g, "")
+    .trim()
+    .slice(0, 80);
+}
+
+function dedupeByTopic(items: NewsItem[]) {
+  const seen = new Set<string>();
+  const out: NewsItem[] = [];
+  for (const item of items) {
+    const key = normalizeTopic(item.title || "");
+    const compact = key.split(" ").slice(0, 8).join(" ");
+    if (!compact || seen.has(compact)) continue;
+    seen.add(compact);
+    out.push(item);
+  }
+  return out;
+}
+
 function score(item: NewsItem, explicitLabor = false) {
   let s = 0;
   const txt = `${item.title} ${item.summary} ${item.category}`;
@@ -220,20 +244,20 @@ function uniqueItems(items: NewsItem[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่นวันนี้ ข่าวกระแส ไทย เกาหลี";
+  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่นวันนี้ ข่าวหน้าหนึ่ง ข่าวกระแส ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV";
 
   const queries = [
     q,
     "ข่าววันนี้ ข่าวเด่น",
-    "ข่าวเด่น เกาหลีใต้ วันนี้",
+    "เดลินิวส์ ข่าวเด่นวันนี้",
     "ข่าวเด่น ไทย วันนี้",
-    "ข่าวกระแส วันนี้",
-    "South Korea top news today",
-    "Korea breaking news today",
-    "แรงงานไทย เกาหลี",
-    "คนไทยในเกาหลี ข่าว",
+    "มติชน ข่าวเด่นวันนี้",
+    "PPTV ข่าวเด่นวันนี้",
+    "เกาหลี ข่าวกระแส วันนี้",
+    "เศรษฐกิจ ค่าครองชีพ ค่าเงิน วันนี้",
+    "แรงงานไทย เกาหลี ข่าว",
     "แรงงานต่างชาติ เกาหลีใต้ วีซ่า",
-    "เศรษฐกิจเกาหลี ค่าเงินวอน"
+    "South Korea top news today"
   ];
 
   const batches = await Promise.allSettled([
