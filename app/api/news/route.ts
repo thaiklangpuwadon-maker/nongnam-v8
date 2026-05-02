@@ -39,21 +39,40 @@ function normalizeDateLabel(raw: any) {
   return String(raw).slice(0, 80);
 }
 
-function thaiHeadlineOnly(items: NewsItem[]) {
+function sourceDomain(item: any) {
+  const raw = String(item?.source || item?.domain || item?.link || "");
+  try {
+    if (/^https?:\/\//i.test(raw)) return new URL(raw).hostname.replace(/^www\./, "");
+  } catch {}
+  return raw.replace(/^www\./, "");
+}
+
+function thaiHeadlineOnly(items: NewsItem[], maxAgeDays = 3) {
   const out: any[] = [];
   for (const item of items || []) {
-    const domain = String((item as any).source || (item as any).domain || (item as any).link || "");
+    const domain = sourceDomain(item);
     const title = String((item as any).title || "").trim();
     const summary = String((item as any).summary || "").trim();
+    const age = typeof (item as any).ageDays === "number" ? (item as any).ageDays : ageDaysFromDate((item as any).publishedRaw || (item as any).published);
 
     if (!title) continue;
     if (!isAllowedThaiNewsDomain(domain)) continue;
     if (!isThaiText(title)) continue;
     if (hasForeignScript(title + " " + summary)) continue;
 
+    // For daily headlines, never show items without a parseable date or older than maxAgeDays.
+    if (age >= 999) continue;
+    if (age > maxAgeDays) continue;
+
+    const dateRaw = (item as any).publishedRaw || (item as any).publishedAt || (item as any).pubDate || (item as any).date || (item as any).updatedAt || (item as any).published;
+    const dateText = normalizeDateLabel(dateRaw);
+
     out.push({
       ...(item as any),
-      updatedAtText: normalizeDateLabel((item as any).published || (item as any).publishedAt || (item as any).pubDate || (item as any).date || (item as any).updatedAt)
+      source: domain || (item as any).source,
+      ageDays: age,
+      updatedAtText: dateText,
+      published: dateText
     });
   }
   return out as NewsItem[];
@@ -109,7 +128,8 @@ function categoryOf(text: string) {
 
 function ageDaysFromDate(input = "") {
   const t = Date.parse(input);
-  if (!Number.isFinite(t)) return 0;
+  // Unknown date must not be treated as fresh. This was the cause of stale news being ranked as "today".
+  if (!Number.isFinite(t)) return 999;
   return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 }
 
@@ -128,10 +148,15 @@ function makeThaiSummary(title: string, desc: string, source: string, category: 
   let cleanDesc = decodeHtml(desc).trim();
 
   if (cleanDesc.length > 260) cleanDesc = cleanDesc.slice(0, 260).trim() + "...";
-  const base = cleanDesc && cleanDesc.length > 25 ? cleanDesc : cleanTitle;
 
-  if (!base) return `ข่าวนี้อยู่ในหมวด ${category} จาก ${source} แนะนำเปิดต้นฉบับเพื่ออ่านรายละเอียดเต็ม`;
-  return `ข่าวนี้รายงานว่า ${base} แหล่งข่าวคือ ${source}`;
+  // Avoid reading the same headline twice. If description is empty or identical to title, be honest.
+  const titleCompact = cleanTitle.replace(/\s+/g, " ").trim();
+  const descCompact = cleanDesc.replace(/\s+/g, " ").trim();
+  if (!descCompact || descCompact === titleCompact || descCompact.includes(titleCompact)) {
+    return `พาดหัวระบุว่า ${titleCompact} แหล่งข่าวคือ ${source} หากต้องการรายละเอียดมากกว่านี้ให้เปิดต้นฉบับหรือให้น้ำค้นลึกเฉพาะข่าวนี้`;
+  }
+
+  return `ใจความเบื้องต้นคือ ${descCompact} แหล่งข่าวคือ ${source}`;
 }
 
 
@@ -220,15 +245,18 @@ async function fetchRss(url: string): Promise<NewsItem[]> {
       const category = categoryOf(`${title} ${rawDesc} ${source}`);
       const ageDays = ageDaysFromDate(rawPub);
 
+      const dateText = thaiDate(rawPub);
       return {
         title,
         source,
         link: stripGoogleRedirect(rawLink),
-        published: thaiDate(rawPub),
+        published: dateText || "",
+        publishedRaw: rawPub,
+        updatedAtText: dateText || "",
         summary: makeThaiSummary(title, rawDesc, source, category),
         category,
         ageDays
-      };
+      } as any;
     }).filter(item => item.title && item.link);
   } catch {
     return [];
@@ -265,15 +293,18 @@ async function fetchGdelt(query: string): Promise<NewsItem[]> {
       const link = a.url || "";
       const publishedRaw = a.seendate || a.date || "";
       const category = categoryOf(`${title} ${source} ${query}`);
+      const dateText = thaiDate(publishedRaw);
       return {
         title,
         source,
         link,
-        published: thaiDate(publishedRaw),
+        published: dateText || "",
+        publishedRaw,
+        updatedAtText: dateText || "",
         summary: makeThaiSummary(title, "", source, category),
         category,
         ageDays: ageDaysFromDate(publishedRaw)
-      };
+      } as any;
     }).filter((x: NewsItem) => x.title && x.link);
   } catch {
     return [];
@@ -295,33 +326,31 @@ function uniqueItems(items: NewsItem[]) {
 
 function buildNewsQueries(q: string) {
   const raw = (q || "").trim();
-
-  // If the user asks for a specific incident/topic, search that topic first across trusted Thai sources.
   const isSpecific = raw && !/ข่าวเด่นวันนี้|ข่าววันนี้|เรื่องเล่าเช้านี้|ข่าวกระแส|ข่าวหน้าหนึ่ง/i.test(raw);
 
   if (isSpecific) {
     return [
-      `${raw} site:bbc.com/thai`,
-      `${raw} site:thairath.co.th`,
-      `${raw} site:khaosod.co.th`,
-      `${raw} site:dailynews.co.th`,
-      `${raw} site:matichon.co.th`,
-      `${raw} site:pptvhd36.com`,
-      `${raw} site:thaipbs.or.th`,
-      raw
+      `${raw} when:30d site:bbc.com/thai`,
+      `${raw} when:30d site:thairath.co.th`,
+      `${raw} when:30d site:khaosod.co.th`,
+      `${raw} when:30d site:dailynews.co.th`,
+      `${raw} when:30d site:matichon.co.th`,
+      `${raw} when:30d site:pptvhd36.com`,
+      `${raw} when:30d site:thaipbs.or.th`,
+      `${raw} when:30d`
     ];
   }
 
   return [
-    "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้",
-    "ข่าวเด่นวันนี้ site:bbc.com/thai",
-    "ข่าวเด่นวันนี้ site:thairath.co.th",
-    "ข่าวเด่นวันนี้ site:khaosod.co.th",
-    "ข่าวเด่นวันนี้ site:dailynews.co.th",
-    "ข่าวเด่นวันนี้ site:matichon.co.th",
-    "ข่าวเด่นวันนี้ site:pptvhd36.com",
-    "ข่าวเด่นวันนี้ site:thaipbs.or.th",
-    "ข่าวหน้าหนึ่งวันนี้ ไทยรัฐ ข่าวสด เดลินิวส์ มติชน PPTV Thai PBS BBC ไทย"
+    "ข่าวเด่นวันนี้ when:2d site:bbc.com/thai",
+    "ข่าวเด่นวันนี้ when:2d site:thairath.co.th",
+    "ข่าวเด่นวันนี้ when:2d site:khaosod.co.th",
+    "ข่าวเด่นวันนี้ when:2d site:dailynews.co.th",
+    "ข่าวเด่นวันนี้ when:2d site:matichon.co.th",
+    "ข่าวเด่นวันนี้ when:2d site:pptvhd36.com",
+    "ข่าวเด่นวันนี้ when:2d site:thaipbs.or.th",
+    "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ when:2d",
+    "ข่าวล่าสุดวันนี้ ข่าวด่วนวันนี้ when:1d"
   ];
 }
 
@@ -335,9 +364,7 @@ export async function GET(req: NextRequest) {
 
   const batches = await Promise.allSettled([
     ...newsQueries.map(x => fetchGoogleSearch(x, "th", "TH", "TH:th")),
-    ...newsQueries.slice(0, 6).map(x => fetchGoogleSearch(x, "ko", "KR", "KR:ko")),
-    fetchTopStories("th", "TH", "TH:th"),
-    fetchTopStories("ko", "KR", "KR:ko")
+    fetchTopStories("th", "TH", "TH:th")
   ]);
 
   let all = batches.flatMap(r => r.status === "fulfilled" ? r.value : []);
@@ -352,17 +379,20 @@ export async function GET(req: NextRequest) {
     all = all.concat(gdelt.flatMap(r => r.status === "fulfilled" ? r.value : []));
   }
 
+  const explicitLabor = /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7|ผีน้อย|แบล็ค|แบล็ก|blacklist/i.test(q);
+  const isSpecificSearch = !/ข่าวเด่นวันนี้|ข่าววันนี้|ข่าวกระแส|ข่าวหน้าหนึ่ง|เรื่องเล่าเช้านี้/i.test(q);
+  const maxAgeDays = explicitLabor || isSpecificSearch ? 30 : 3;
+
   const softFiltered = all.filter(item => {
-    if (item.category === "แรงงาน/วีซ่า") return item.ageDays <= 45;
-    return item.ageDays <= 21;
+    // Unknown date is not acceptable for daily news. It caused month-old articles to appear as "today".
+    if (item.ageDays >= 999) return false;
+    return item.ageDays <= maxAgeDays;
   });
 
-  const usable = softFiltered.length ? softFiltered : all;
+  const rankedItems = uniqueItems(softFiltered)
+    .sort((a, b) => score(b, explicitLabor) - score(a, explicitLabor));
 
-  const rankedItems = uniqueItems(usable)
-    .sort((a, b) => score(b, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)) - score(a, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)));
-
-  const items = thaiHeadlineOnly(rankedItems).slice(0, 5);
+  const items = thaiHeadlineOnly(rankedItems, maxAgeDays).slice(0, 5);
 
   return NextResponse.json(
     {
