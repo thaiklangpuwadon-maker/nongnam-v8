@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-reset-outfit-intent-fix";
+const APP_VERSION = "v6.3.1-books-news-context-fix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -321,15 +321,34 @@ export default function Page() {
   const readingRef = useRef<ReadingSession | null>(null);
 
   useEffect(() => {
+    const forceSetup =
+      localStorage.getItem("nongnam_force_setup_v1") === "1" ||
+      new URLSearchParams(window.location.search).has("reset");
+
+    if (forceSetup) {
+      try {
+        localStorage.removeItem("nongnam_force_setup_v1");
+        clearNongnamLocalData();
+        window.history.replaceState({}, "", window.location.pathname);
+      } catch {}
+      setMem({ ...defaultMem, setupDone: false });
+      setChat([]);
+      setScreen("welcome");
+      setReady(true);
+      return;
+    }
+
     const saved = loadJSON<Memory>(MEMORY_KEY, defaultMem);
     const merged = {
       ...defaultMem,
       ...saved,
+      setupDone: saved.setupDone === true,
       voiceUnlocked: saved.voiceUnlocked ?? true,
       apiConsent: true,
       apiMode: saved.apiMode && saved.apiMode !== "local" ? saved.apiMode : "api-light",
       purchasedOutfits: Array.from(new Set([...(saved.purchasedOutfits || []), ...FREE_OUTFIT_IDS]))
     };
+
     setMem(merged);
     const savedChat = loadJSON<ChatMsg[]>(CHAT_KEY, []);
     setChat(savedChat.slice(-8));
@@ -339,9 +358,17 @@ export default function Page() {
       setReading(paused);
       readingRef.current = paused;
     }
-    if (merged.setupDone) setScreen("chat");
+
+    setScreen(merged.setupDone ? "chat" : "welcome");
     setReady(true);
   }, []);
+
+  // hard setup guard
+  useEffect(() => {
+    if (ready && !mem.setupDone && screen === "chat") {
+      setScreen("welcome");
+    }
+  }, [ready, mem.setupDone, screen]);
 
   // PWA Install handling
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -589,12 +616,7 @@ export default function Page() {
   }
 
   function newsSearchingText(m: Memory = mem) {
-    const name = m.nongnamName || "น้องน้ำ";
-    const call = m.userCallName || "พี่";
-    const rel = `${m.relationshipMode || ""} ${m.affectionStyle || ""}`.toLowerCase();
-    if (/ผัว|สามี|husband/.test(rel)) return `แป๊บเดียวนะคะผัว เดี๋ยว${name}เช็คข่าววันนี้ให้ก่อนนะ`;
-    if (/แฟน|ที่รัก|lover|girlfriend|boyfriend/.test(rel)) return `แป๊บเดียวนะคะที่รัก เดี๋ยว${name}ไล่ข่าววันนี้ให้`;
-    return `แป๊บเดียวนะคะ${call} เดี๋ยว${name}เช็คให้ว่าวันนี้มีข่าวอะไรน่าสนใจบ้าง`;
+    return newsWaitText(m);
   }
 
   function newsNoResultText(m: Memory = mem) {
@@ -647,7 +669,7 @@ export default function Page() {
 
       if (found.length) {
         setTimeout(() => {
-          sendAssistant(`เจอข่าวน่าสนใจ ${found.length} เรื่อง${polite}${mem.userCallName} กดสรุปข่าวที่สนใจได้เลย`);
+          sendAssistant(newsFoundText(found.length, mem));
         }, 350);
       } else {
         console.warn("No news returned after fallback", lastNote);
@@ -709,17 +731,7 @@ export default function Page() {
   }
 
   function resetProfile() {
-    const ok = confirm("รีเซ็ตเฉพาะข้อมูลตั้งค่าใช่ไหมคะ? เพชรจะไม่เพิ่มซ้ำ");
-    if (!ok) return;
-    const keepGems = mem.gems;
-    const keepOwner = mem.ownerMode;
-    const keepPurchased = mem.purchasedOutfits;
-    const fresh = { ...defaultMem, gems: keepGems, ownerMode: keepOwner, purchasedOutfits: keepPurchased };
-    setMem(fresh);
-    setChat([]);
-    localStorage.removeItem(CHAT_KEY);
-    setScreen("welcome");
-    notify("รีเซ็ตตัวตนและความจำแล้ว");
+    resetIdentityAndMemory();
   }
 
   function tapVersion() {
@@ -844,7 +856,7 @@ export default function Page() {
 
 
   function hasCompletedSetup(m: Memory = mem) {
-    return Boolean(m.nongnamName && m.userCallName && m.relationshipMode);
+    return m.setupDone === true;
   }
 
 
@@ -876,20 +888,24 @@ export default function Page() {
     );
     if (!ok) return;
 
-    clearNongnamLocalData();
-
     try {
+      clearNongnamLocalData();
       sessionStorage.clear();
       localStorage.setItem("nongnam_force_setup_v1", "1");
+      localStorage.removeItem(MEMORY_KEY);
+      localStorage.removeItem(CHAT_KEY);
+      localStorage.removeItem(READING_KEY);
     } catch {}
 
-    notify("รีเซ็ตแล้ว กำลังกลับไปหน้าเริ่มต้น");
+    setMem({ ...defaultMem, setupDone: false });
     setChat([]);
+    setReading(null);
     setScreen("welcome");
+    notify("รีเซ็ตแล้ว กำลังกลับไปหน้าเริ่มต้น");
 
     setTimeout(() => {
-      window.location.href = window.location.pathname + "?reset=" + Date.now();
-    }, 350);
+      window.location.replace(window.location.pathname + "?reset=" + Date.now());
+    }, 250);
   }
 
 
@@ -1028,7 +1044,7 @@ export default function Page() {
 
   function isOutfitActionIntent(msg: string) {
     if (isOutfitMemoryIntent(msg)) return false;
-    return /(เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เปิดชุด|เปิดคลังชุด|พาไปเลือกชุด|ไปเปลี่ยนชุด|ใส่ชุดนี้|อยากซื้อชุด|ซื้อเสื้อผ้า|แต่งตัวใหม่|ชุดใหม่ให้หน่อย|วันนี้ใส่ชุดไหนดี|น้องน้ำไปเปลี่ยน|ใส่ชุด.*ให้.*ดู|ใส่.*เซ็กซี่|ใส่.*สวย|แต่งตัว.*ให้.*ดู|โชว์ชุด|ลองชุด|ชุดนอนไม่ได้นอน|ชุดว่ายน้ำ|บิกินี|ทูพีซ|วันพีซ|เดรสสวย|ชุดเซ็กซี่|ชุดสวยๆ|ชุดสวยสวย)/i.test(msg);
+    return /(เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เปิดชุด|เปิดคลังชุด|พาไปเลือกชุด|ไปเปลี่ยนชุด|ใส่ชุดนี้|อยากซื้อชุด|ซื้อเสื้อผ้า|แต่งตัวใหม่|ชุดใหม่ให้หน่อย|วันนี้ใส่ชุดไหนดี|น้องน้ำไปเปลี่ยน|ใส่ชุด.*ให้.*ดู|ใส่.*เซ็กซี่|ใส่.*สวย|แต่งตัว.*ให้.*ดู|โชว์ชุด|ลองชุด|ชุดนอนไม่ได้นอน|ชุดว่ายน้ำ|บิกินี|ทูพีซ|วันพีซ|เดรสสวย|ชุดเซ็กซี่|ชุดสวยๆ|ชุดสวยสวย|ใส่ชุด.*ให้.*ดู|ใส่.*ชุด.*ให้.*ดู|ใส่.*เซ็กซี่|เซ็กซี่.*ให้.*ดู|ชุดสวย.*ให้.*ดู|แต่งตัว.*ให้.*ดู|โชว์.*ชุด|ลอง.*ชุด)/i.test(msg);
   }
 
 
@@ -1070,6 +1086,54 @@ export default function Page() {
       setScreen("welcome");
     }
   }, []);
+
+
+  function relationshipTone(m: Memory = mem) {
+    const rel = `${m.relationshipMode || ""} ${m.affectionStyle || ""}`.toLowerCase();
+    if (/ผัว|สามี|husband/.test(rel)) return "spouse_husband";
+    if (/เมีย|ภรรยา|wife/.test(rel)) return "spouse_wife";
+    if (/แฟน|ที่รัก|lover|girlfriend|boyfriend/.test(rel)) return "lover";
+    if (/ที่ปรึกษา|consult|advisor/.test(rel)) return "advisor";
+    if (/เพื่อน|friend/.test(rel)) return "friend";
+    return "neutral";
+  }
+
+  function userWaitCall(m: Memory = mem) {
+    const tone = relationshipTone(m);
+    const call = m.userCallName || "พี่";
+    if (tone === "spouse_husband") return "ผัวจ๋า";
+    if (tone === "spouse_wife") return "เมียจ๋า";
+    if (tone === "lover") return call && call !== "พี่" ? call : "ที่รัก";
+    return call || "พี่";
+  }
+
+  function newsWaitText(m: Memory = mem) {
+    const tone = relationshipTone(m);
+    const call = userWaitCall(m);
+    const name = m.nongnamName || "น้องน้ำ";
+    if (tone === "spouse_husband") return `แป๊บนะจ๊ะ${call} เดี๋ยวเมียลองหาข่าวเด่นวันนี้ให้ก่อน`;
+    if (tone === "spouse_wife") return `แป๊บนะจ๊ะ${call} เดี๋ยว${name}หาให้ก่อนนะ`;
+    if (tone === "lover") return `แป๊บนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นวันนี้ให้`;
+    if (tone === "advisor") return `รอสักครู่นะคะ${call} เดี๋ยว${name}ตรวจข่าวเด่นวันนี้ให้ก่อน`;
+    return `แป๊บหนึ่งนะคะ${call} เดี๋ยว${name}เช็กข่าวเด่นวันนี้ให้ก่อน`;
+  }
+
+  function newsFoundText(count: number, m: Memory = mem) {
+    const call = userWaitCall(m);
+    const name = m.nongnamName || "น้องน้ำ";
+    return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคพิมพ์ว่า “เข้าไปดูข่าว” ได้เลย`;
+  }
+
+  function isBookIntent(msg: string) {
+    return /(อ่านหนังสือ|อ่านนิทาน|เล่านิทาน|อ่านก่อนนอน|อ่านให้ฟัง|อ่านคำศัพท์|ท่องศัพท์|หนังสือให้ฟัง|เปิดหนังสือ|หมวดหนังสือ|อยากฟังหนังสือ|เล่าเรื่องให้ฟัง)/i.test(msg);
+  }
+
+  function bookInviteText(m: Memory = mem) {
+    const call = m.userCallName || "พี่";
+    const name = m.nongnamName || "น้องน้ำ";
+    return `${call} อยากให้${name}อ่านแนวไหนดีคะ เลือกจากหน้าหนังสือได้เลย มีแนวก่อนนอน คำศัพท์ เรื่องเล่า และหมวดพิเศษ ถ้าเป็นคำศัพท์/ก่อนนอนน้ำตั้งใจให้อ่านสบาย ๆ ไม่ต้องรีบเสียเพชรค่ะ`;
+  }
+
 
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
@@ -1987,8 +2051,8 @@ export default function Page() {
             <button className="back slimBack" onClick={()=>setScreen("chat")}>←</button>
             <h1>ตั้งค่า</h1>
             <div className="card settingsCard">
-              <button onClick={resetProfile}>รีเซ็ตตัวตนและความจำ</button>
-              <button onClick={()=>{setChat([]); localStorage.removeItem(CHAT_KEY); notify("ล้างแชตแล้ว");}}>ล้างหน้าจอแชท</button>
+              <button onClick={resetIdentityAndMemory}>รีเซ็ตตัวตนและความจำ</button>
+              <button onClick={clearChatScreenOnly}>ล้างหน้าจอแชท</button>
 
               <div className="apiSettingBox">
                 <b>โหมดคุยกับ AI (OpenAI)</b>

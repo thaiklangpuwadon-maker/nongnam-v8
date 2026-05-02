@@ -85,17 +85,30 @@ function makeThaiSummary(title: string, desc: string, source: string, category: 
   return `ข่าวนี้รายงานว่า ${base} แหล่งข่าวคือ ${source}`;
 }
 
-function score(item: NewsItem) {
+function score(item: NewsItem, explicitLabor = false) {
   let s = 0;
+  const txt = `${item.title} ${item.summary} ${item.category}`;
+
+  // ข่าวสดและข่าวใหญ่ทั่วไปมาก่อน
   if (item.ageDays <= 0) s += 120;
   else if (item.ageDays <= 1) s += 100;
   else if (item.ageDays <= 3) s += 70;
-  else if (item.ageDays <= 7) s += 30;
+  else if (item.ageDays <= 7) s += 35;
   else s += 5;
 
-  if (item.category === "แรงงาน/วีซ่า") s += 35;
-  if (/ล่าสุด|ด่วน|วันนี้|กระแส|breaking|urgent|today|속보|논란/i.test(item.title + " " + item.summary)) s += 20;
-  if (/แรงงานไทย|คนไทยในเกาหลี|วีซ่า|EPS|E-9|E9/i.test(item.title + " " + item.summary)) s += 25;
+  // ข่าวเด่น/กระแส/ข่าวที่กระทบคนส่วนใหญ่
+  if (/ข่าวเด่น|วันนี้|ด่วน|ล่าสุด|กระแส|breaking|urgent|today|속보|논란|รัฐบาล|เศรษฐกิจ|ค่าเงิน|ค่าครองชีพ|ภัยพิบัติ|อุบัติเหตุ|การเมือง|สังคม/i.test(txt)) s += 35;
+
+  // ข่าวไทยและข่าวเกาหลีที่กระทบชีวิตประจำวัน
+  if (item.category === "ไทย") s += 20;
+  if (item.category === "เกาหลีกระแส") s += 15;
+
+  // ข่าวแรงงานไม่ดันขึ้นก่อน ยกเว้นผู้ใช้ถามแรงงานโดยตรง หรือข่าวนั้นเป็นข่าวใหญ่จริง
+  if (item.category === "แรงงาน/วีซ่า") {
+    s += explicitLabor ? 45 : 5;
+    if (/ค่าแรงขั้นต่ำ|กฎหมายแรงงาน|ทำร้ายลูกจ้าง|อุบัติเหตุแรงงาน|แรงงานเสียชีวิต|จับกุม|นโยบายใหม่|วีซ่าใหม่/i.test(txt)) s += 40;
+  }
+
   return s;
 }
 
@@ -211,20 +224,21 @@ function uniqueItems(items: NewsItem[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่น เกาหลีใต้ วันนี้ แรงงานไทย";
+  const q = req.nextUrl.searchParams.get("q") || "ข่าวเด่นวันนี้ ข่าวกระแส ไทย เกาหลี";
 
   const queries = [
     q,
-    "ข่าววันนี้ ข่าวเด่น",
+    "ข่าวเด่นวันนี้ ข่าวกระแส",
+    "ข่าววันนี้ ข่าวเด่น ไทย",
     "ข่าวเด่น เกาหลีใต้ วันนี้",
-    "ข่าวเด่น ไทย วันนี้",
+    "ข่าวเศรษฐกิจ ค่าครองชีพ วันนี้",
     "ข่าวกระแส วันนี้",
     "South Korea top news today",
     "Korea breaking news today",
+    "เศรษฐกิจเกาหลี ค่าเงินวอน",
     "แรงงานไทย เกาหลี",
     "คนไทยในเกาหลี ข่าว",
-    "แรงงานต่างชาติ เกาหลีใต้ วีซ่า",
-    "เศรษฐกิจเกาหลี ค่าเงินวอน"
+    "แรงงานต่างชาติ เกาหลีใต้ วีซ่า"
   ];
 
   const batches = await Promise.allSettled([
@@ -254,7 +268,7 @@ export async function GET(req: NextRequest) {
   const usable = softFiltered.length ? softFiltered : all;
 
   const items = uniqueItems(usable)
-    .sort((a, b) => score(b) - score(a))
+    .sort((a, b) => score(b, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)) - score(a, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)))
     .slice(0, 14);
 
   return NextResponse.json(
