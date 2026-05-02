@@ -89,7 +89,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-persistent-identity-settings-diamonds";
+const APP_VERSION = "v6.3.1-reset-outfit-intent-fix";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -719,7 +719,7 @@ export default function Page() {
     setChat([]);
     localStorage.removeItem(CHAT_KEY);
     setScreen("welcome");
-    notify("รีเซ็ตข้อมูลตั้งค่าแล้ว");
+    notify("รีเซ็ตตัวตนและความจำแล้ว");
   }
 
   function tapVersion() {
@@ -847,6 +847,52 @@ export default function Page() {
     return Boolean(m.nongnamName && m.userCallName && m.relationshipMode);
   }
 
+
+  function clearNongnamLocalData() {
+    const keys: string[] = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && /nongnam|nong_nam|nam_ai|companion|wardrobe|story_memory|user_preferences/i.test(k)) keys.push(k);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch {}
+  }
+
+  function clearChatScreenOnly() {
+    const ok = window.confirm(
+      "ล้างหน้าจอแชท?\n\nข้อความที่แสดงอยู่บนหน้าจอจะถูกซ่อนออก เพื่อความเป็นส่วนตัว\nแต่น้องน้ำยังจำตัวตน ความสัมพันธ์ และเรื่องสำคัญที่เคยคุยกันไว้เหมือนเดิม\n\nเหมาะสำหรับเวลาที่ไม่อยากให้คนอื่นเห็นข้อความเก่า"
+    );
+    if (!ok) return;
+    setChat([]);
+    try { localStorage.setItem("nongnam_chat_v631", JSON.stringify([])); } catch {}
+    notify("ล้างหน้าจอแชทแล้ว แต่ความจำยังอยู่ครบ");
+    sendAssistant("น้ำล้างหน้าจอให้แล้วค่ะพี่ ความจำของเรายังอยู่เหมือนเดิมนะ ไม่ได้ลืมพี่หรอก");
+  }
+
+  function resetIdentityAndMemory() {
+    const ok = window.confirm(
+      "รีเซ็ตตัวตนและความจำน้องน้ำ?\n\nถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน เพชรในเครื่องนี้ และเรื่องสำคัญที่เคยบันทึกไว้\n\nหลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น\n\nยืนยันหรือไม่?"
+    );
+    if (!ok) return;
+
+    clearNongnamLocalData();
+
+    try {
+      sessionStorage.clear();
+      localStorage.setItem("nongnam_force_setup_v1", "1");
+    } catch {}
+
+    notify("รีเซ็ตแล้ว กำลังกลับไปหน้าเริ่มต้น");
+    setChat([]);
+    setScreen("welcome");
+
+    setTimeout(() => {
+      window.location.href = window.location.pathname + "?reset=" + Date.now();
+    }, 350);
+  }
+
+
   function getStoryMemory() {
     try { return JSON.parse(localStorage.getItem("nongnam_story_memory_v1") || "{}"); }
     catch { return {}; }
@@ -873,31 +919,7 @@ export default function Page() {
     return /(จำไว้นะ|อย่าลืม|พี่ไม่ชอบ|ไม่ชอบให้|อย่าตอบแบบนี้|พูดแบบนี้ไม่ถูก|คราวหน้าต้อง|แบบนี้ดีแล้ว|พี่ชอบให้|ทำแบบนี้นะ)/i.test(msg);
   }
 
-  function clearChatScreenOnly() {
-    const ok = window.confirm(
-      "ล้างหน้าจอแชท?\n\nข้อความที่แสดงอยู่บนหน้าจอจะถูกซ่อนออก เพื่อความเป็นส่วนตัว\nแต่น้องน้ำยังจำตัวตน ความสัมพันธ์ และเรื่องสำคัญที่เคยคุยกันไว้เหมือนเดิม\n\nเหมาะสำหรับเวลาที่ไม่อยากให้คนอื่นเห็นข้อความเก่า"
-    );
-    if (!ok) return;
-    setChat([]);
-    notify("ล้างหน้าจอแชทแล้ว แต่ความจำยังอยู่ครบ");
-  }
 
-  function resetIdentityAndMemory() {
-    const ok = window.confirm(
-      "รีเซ็ตตัวตนน้องน้ำ?\n\nถ้ากดยืนยัน น้องน้ำจะลืมตัวตนเดิมทั้งหมด รวมถึงเพศ ชื่อ ความสัมพันธ์ วิธีเรียกพี่ สไตล์การคุย ความทรงจำร่วมกัน และเรื่องสำคัญที่เคยบันทึกไว้\n\nหลังจากนี้ต้องเริ่มตั้งค่าน้องน้ำใหม่ตั้งแต่ต้น\n\nยืนยันหรือไม่?"
-    );
-    if (!ok) return;
-    try {
-      localStorage.removeItem("nongnam_memory_v631");
-      localStorage.removeItem("nongnam_chat_v631");
-      localStorage.removeItem("nongnam_story_memory_v1");
-      localStorage.removeItem("nongnam_user_preferences_v1");
-      localStorage.removeItem("nongnam_adult_confirmed_at");
-      localStorage.removeItem("nongnam_used_redeem_codes_v1");
-    } catch {}
-    notify("รีเซ็ตตัวตนและความจำแล้ว");
-    setTimeout(() => location.reload(), 500);
-  }
 
   function redeemDiamonds() {
     const code = window.prompt("กรอกรหัสเติมเพชร\n\nช่วงทดลองใช้ได้ เช่น PILOT01-100 หรือ TOPUP-MAN-300");
@@ -977,7 +999,7 @@ export default function Page() {
   }
 
   function isAdultTopic(msg: string) {
-    return /(18\+|ผู้ใหญ่|อีโรติก|เซ็กซี่มาก|วาบหวิว|เร่าร้อน|คืนนี้|ห้องนอน)/i.test(msg);
+    return /(18\+|ผู้ใหญ่|อีโรติก|วาบหวิวมาก|เร่าร้อนมาก|เนื้อหา18|ห้องนอนผู้ใหญ่)/i.test(msg);
   }
 
   function isHeavyTask(msg: string) {
@@ -1003,9 +1025,13 @@ export default function Page() {
     return false;
   }
 
+
   function isOutfitActionIntent(msg: string) {
-    return /(เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เปิดชุด|เปิดคลังชุด|พาไปเลือกชุด|ไปเปลี่ยนชุด|ใส่ชุดนี้|อยากซื้อชุด|ซื้อเสื้อผ้า|แต่งตัวใหม่|ชุดใหม่ให้หน่อย|วันนี้ใส่ชุดไหนดี|น้องน้ำไปเปลี่ยน)/i.test(msg);
+    if (isOutfitMemoryIntent(msg)) return false;
+    return /(เปลี่ยนชุด|เลือกชุด|ซื้อชุด|คลังชุด|เปิดชุด|เปิดคลังชุด|พาไปเลือกชุด|ไปเปลี่ยนชุด|ใส่ชุดนี้|อยากซื้อชุด|ซื้อเสื้อผ้า|แต่งตัวใหม่|ชุดใหม่ให้หน่อย|วันนี้ใส่ชุดไหนดี|น้องน้ำไปเปลี่ยน|ใส่ชุด.*ให้.*ดู|ใส่.*เซ็กซี่|ใส่.*สวย|แต่งตัว.*ให้.*ดู|โชว์ชุด|ลองชุด|ชุดนอนไม่ได้นอน|ชุดว่ายน้ำ|บิกินี|ทูพีซ|วันพีซ|เดรสสวย|ชุดเซ็กซี่|ชุดสวยๆ|ชุดสวยสวย)/i.test(msg);
   }
+
+
 
   function isOutfitMemoryIntent(msg: string) {
     return /(ตอน.*ใส่ชุด|วันนั้น.*ใส่ชุด|เดท.*ใส่ชุด|เจอกันครั้งแรก.*ชุด|ชุดวันนั้น|จำได้ไหม.*ชุด|น้องน้ำใส่ชุดอะไรนะ|ใส่ชุดอะไรนะ)/i.test(msg);
@@ -1029,11 +1055,21 @@ export default function Page() {
 
 
   useEffect(() => {
-    const setupScreens = new Set(['setup', 'welcome']);
-    if (hasCompletedSetup(mem) && setupScreens.has(screen)) {
+    const setupScreens = new Set(["welcome", "setup"]);
+    const force = localStorage.getItem("nongnam_force_setup_v1");
+    if (!force && hasCompletedSetup(mem) && setupScreens.has(screen)) {
       setScreen("chat");
     }
   }, [screen, mem.nongnamName, mem.userCallName, mem.relationshipMode]);
+
+  useEffect(() => {
+    const force = localStorage.getItem("nongnam_force_setup_v1");
+    if (force === "1") {
+      localStorage.removeItem("nongnam_force_setup_v1");
+      setChat([]);
+      setScreen("welcome");
+    }
+  }, []);
 
   function detectUserMood(msg: string) {
     if (/เหนื่อย|ล้า|หมดแรง|ท้อ|ไม่ไหว/.test(msg)) return "tired";
@@ -1951,8 +1987,8 @@ export default function Page() {
             <button className="back slimBack" onClick={()=>setScreen("chat")}>←</button>
             <h1>ตั้งค่า</h1>
             <div className="card settingsCard">
-              <button onClick={resetProfile}>รีเซ็ตข้อมูลตั้งค่า</button>
-              <button onClick={()=>{setChat([]); localStorage.removeItem(CHAT_KEY); notify("ล้างแชตแล้ว");}}>ล้างประวัติแชต</button>
+              <button onClick={resetProfile}>รีเซ็ตตัวตนและความจำ</button>
+              <button onClick={()=>{setChat([]); localStorage.removeItem(CHAT_KEY); notify("ล้างแชตแล้ว");}}>ล้างหน้าจอแชท</button>
 
               <div className="apiSettingBox">
                 <b>โหมดคุยกับ AI (OpenAI)</b>
