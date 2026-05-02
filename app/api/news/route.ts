@@ -11,26 +11,21 @@ type NewsItem = {
   summary: string;
   category: string;
   ageDays: number;
+  updatedAtText?: string;
 };
+
 
 
 function isThaiText(s: string) {
   return /[\u0E00-\u0E7F]/.test(s || "");
 }
 
-function isMostlyNonThai(s: string) {
-  const text = (s || "").trim();
-  if (!text) return true;
-  const thai = (text.match(/[\u0E00-\u0E7F]/g) || []).length;
-  const latin = (text.match(/[A-Za-z]/g) || []).length;
-  const cjk = (text.match(/[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/g) || []).length;
-  const cyr = (text.match(/[\u0400-\u04FF]/g) || []).length;
-  // Allow English only when domain is Thai source handled elsewhere, otherwise prefer Thai headlines.
-  return thai < 4 && (cjk + cyr > 0 || latin > thai * 4);
+function hasForeignScript(s: string) {
+  return /[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\u0400-\u04FF]/.test(s || "");
 }
 
 function isAllowedThaiNewsDomain(domain: string) {
-  return /(thairath|dailynews|khaosod|matichon|pptvhd36|springnews|nationtv|workpointtoday|thaipbs|bangkokbiznews|mgronline|komchadluek|posttoday|amarintv|ch7|tna|mcot|sanook|kapook|line\.me|thestandard|today\.line)/i.test(domain || "");
+  return /(morning-news|morningnewstv3|ch3plus|ch3thailand|thairath|dailynews|khaosod|matichon|pptvhd36|springnews|nationtv|workpointtoday|thaipbs|bangkokbiznews|mgronline|komchadluek|posttoday|amarintv|ch7|tna|mcot|sanook|kapook|thestandard|today\.line)/i.test(domain || "");
 }
 
 function normalizeDateLabel(raw: any) {
@@ -44,24 +39,27 @@ function normalizeDateLabel(raw: any) {
   return String(raw).slice(0, 80);
 }
 
-function cleanThaiNewsItems(items: NewsItem[]) {
-  const cleaned: NewsItem[] = [];
+function thaiHeadlineOnly(items: NewsItem[]) {
+  const out: any[] = [];
   for (const item of items || []) {
-    const domain = String((item as any).source || (item as any).domain || (item as any).url || "");
-    const title = String((item as any).title || "");
-    const summary = String((item as any).summary || (item as any).snippet || "");
+    const domain = String((item as any).source || (item as any).domain || (item as any).link || "");
+    const title = String((item as any).title || "").trim();
+    const summary = String((item as any).summary || "").trim();
 
-    const allowedThai = isAllowedThaiNewsDomain(domain);
-    const hasThai = isThaiText(title) || isThaiText(summary);
+    if (!title) continue;
+    if (!isAllowedThaiNewsDomain(domain)) continue;
+    if (!isThaiText(title)) continue;
+    if (hasForeignScript(title + " " + summary)) continue;
 
-    if (!allowedThai && !hasThai) continue;
-    if (!allowedThai && isMostlyNonThai(title + " " + summary)) continue;
-
-    (item as any).updatedAtText = normalizeDateLabel((item as any).publishedAt || (item as any).pubDate || (item as any).date || (item as any).published || (item as any).updatedAt);
-    cleaned.push(item);
+    out.push({
+      ...(item as any),
+      updatedAtText: normalizeDateLabel((item as any).published || (item as any).publishedAt || (item as any).pubDate || (item as any).date || (item as any).updatedAt)
+    });
   }
-  return cleaned;
+  return out as NewsItem[];
 }
+
+
 
 
 function decodeHtml(input = "") {
@@ -295,7 +293,7 @@ function uniqueItems(items: NewsItem[]) {
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "site:thairath.co.th OR site:dailynews.co.th OR site:khaosod.co.th OR site:matichon.co.th OR site:pptvhd36.com ข่าวเด่นวันนี้";
+  const q = req.nextUrl.searchParams.get("q") || "เรื่องเล่าเช้านี้ ข่าวเด่นวันนี้ ไทยรัฐ เดลินิวส์ ข่าวสด มติชน PPTV";
 
   const queries = [
     q,
@@ -337,9 +335,10 @@ export async function GET(req: NextRequest) {
 
   const usable = softFiltered.length ? softFiltered : all;
 
-  const items = uniqueItems(usable)
-    .sort((a, b) => score(b, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)) - score(a, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)))
-    .slice(0, 14);
+  const rankedItems = uniqueItems(usable)
+    .sort((a, b) => score(b, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)) - score(a, /แรงงาน|วีซ่า|worker|visa|eps|e-9|e9|e-7|e7/i.test(q)));
+
+  const items = thaiHeadlineOnly(rankedItems).slice(0, 5);
 
   return NextResponse.json(
     {

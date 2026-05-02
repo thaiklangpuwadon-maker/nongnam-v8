@@ -19,7 +19,7 @@ type BookItem = {
 
 type NewsItem = {
   title: string;
-  source: string; updatedAtText?: string;
+  source: string; updatedAtText?: string; updatedAtText?: string;
   link: string;
   published: string;
   summary: string;
@@ -89,12 +89,12 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v6.3.1-news-thai-reminder-fix";
+const APP_VERSION = "v6.3.2-real-data-thai-news";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
 const SETUP_DONE_FLAG = "nongnam_setup_completed_v1";
-const NEWS_CACHE_KEY = "nongnam_news_cache_v1";
+const NEWS_CACHE_KEY = "nongnam_news_cache_v2_thai_only";
 const REMINDERS_KEY = "nongnam_reminders_v1";
 const EMOTION_STATE_KEY = "nongnam_emotion_state_v1";
 const CORRECTION_MEMORY_KEY = "nongnam_correction_memory_v1";
@@ -1125,7 +1125,7 @@ try {
   function newsFoundText(count: number, m: Memory = mem) {
     const call = userWaitCall(m);
     const name = m.nongnamName || "น้องน้ำ";
-    return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคบอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`;
+    return `${call} ${name}เจอข่าวน่าสนใจแล้ว ${count} เรื่อง จะเข้าไปดูหน้าสรุปข่าวเลยไหมคะ ถ้าโอเคเข้าไปดูเลยไหมคะ`;
   }
 
 
@@ -1159,7 +1159,7 @@ try {
 
 
   function isOpenNewsIntent(msg: string) {
-    return /(เข้าไปดูข่าว|เปิดหน้าข่าว|ไปหน้าข่าว|ดูข่าวเลย|เข้าไปอ่านข่าว|ไปดูข่าวกัน|เปิดข่าวที่หาไว้|โอเค.*(เข้า|ดู|ไป).*ข่าว|โอเคเข้าไปได้เลย|เข้าไปได้เลย|ไปเลย|ดูเลย|เปิดเลย|เอาเลย|ได้เลย|ไปดูเลย)/i.test(msg);
+    return /(เข้าไปดูข่าว|เปิดหน้าข่าว|ไปหน้าข่าว|ดูข่าวเลย|เข้าไปอ่านข่าว|ไปดูข่าวกัน|โอเค.*(เข้า|ดู|ไป).*ข่าว|โอเคเข้าไปได้เลย|เข้าไปได้เลย|ดูเลย|เปิดเลย|ไปเลย|เอาเลย|ได้เลย|ไปดูเลย)/i.test(msg);
   }
 
 
@@ -1195,7 +1195,7 @@ try {
     const cache = getNewsCache();
 
     if (isTodayNewsCache(cache)) {
-      sendAssistant(`น้ำมีข่าวเด่นวันนี้ที่เตรียมไว้แล้วค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคบอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`);
+      sendAssistant(`น้ำมีข่าวเด่นวันนี้ที่เตรียมไว้แล้วค่ะ ${userWaitCall(mem)} จะเข้าไปดูเลยไหม ถ้าโอเคเข้าไปดูเลยไหมคะ`);
       return;
     }
 
@@ -1209,7 +1209,7 @@ try {
       if (items.length) {
         saveNewsCache(items);
         try { window.dispatchEvent(new CustomEvent("nongnam-news-cache-updated")); } catch {}
-        sendAssistant(`ข่าวพร้อมแล้วค่ะ ${userWaitCall(mem)} น้ำเตรียมข่าวเด่นวันนี้ไว้ให้ ${items.length} เรื่อง จะเข้าไปดูหน้าข่าวเลยไหมคะ บอกน้ำว่า “เข้าไปดูข่าว”, “โอเคเข้าไปเลย”, หรือ “ดูเลย” ก็ได้`);
+        sendAssistant(`ข่าวพร้อมแล้วค่ะ ${userWaitCall(mem)} น้ำเตรียมข่าวเด่นวันนี้ไว้ให้ 5 เรื่องหลัก เข้าไปดูเลยไหมคะ`);
         return;
       }
 
@@ -1375,6 +1375,23 @@ try {
             ? ["ตั้งใจ", "ช่วยคิด", "ถามให้ชัด", "สรุปสั้น"]
             : ["คุยธรรมชาติ", "ถามกลับนิดๆ", "เล่นมุกเบาๆ", "รับฟัง"];
     return moods[seed % moods.length];
+  }
+
+
+  function isRealDateTimeQuestion(msg: string) {
+    return /(วันนี้.*(กี่โมง|วันที่|วันอะไร|เวลา)|ตอนนี้.*(กี่โมง|วันที่|วันอะไร|เวลา)|ตอนนี้กี่โมง|วันนี้วันที่เท่าไหร่|วันนี้วันอะไร|เวลาเท่าไหร่)/i.test(msg);
+  }
+
+  function realDateTimeReply() {
+    try {
+      const d = new Date();
+      if (isNaN(d.getTime())) {
+        return "น้ำยังเช็กวันเวลาในเครื่องไม่ได้ค่ะพี่ เลยไม่อยากเดาให้มั่ว";
+      }
+      return `ตอนนี้ตามเวลาในเครื่องประมาณ ${d.toLocaleString("th-TH", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Seoul" })} ค่ะ`;
+    } catch {
+      return "น้ำยังเช็กวันเวลาในเครื่องไม่ได้ค่ะพี่ เลยไม่อยากเดาให้มั่ว";
+    }
   }
 
   function isCoreHumanChatIntent(msg: string) {
@@ -1805,8 +1822,18 @@ try {
       return playfulHumanReply(msg, mem);
     }
 
+    if (isRealDateTimeQuestion(msg)) {
+      setStatus("idle");
+      sendAssistant(realDateTimeReply());
+      return;
+    }
+
     if (isCoreHumanChatIntent(msg)) {
       return coreBrainV2Reply(msg, mem);
+    }
+
+    if (isRealDateTimeQuestion(msg)) {
+      return realDateTimeReply();
     }
 
     if (shouldRememberInstruction(msg)) {
@@ -2658,7 +2685,7 @@ try {
               <button onClick={()=>loadNews("ข่าวเกาหลีใต้ ล่าสุด กระแส")}>เกาหลีกระแส</button>
             </div>
             {newsLoading && <div className="resumeBox">กำลังไล่ข่าวให้อยู่ รอแป๊บนึงนะ...</div>}
-            {!newsLoading && !newsItems.length && <div className="resumeBox">ยังไม่ได้โหลดข่าวขึ้นมา ถ้ารอสักครู่แล้วยังไม่ขึ้น ให้กดหมวดด้านบนเพื่อค้นใหม่อีกครั้ง</div>}
+            {!newsLoading && !newsItems.length && <div className="resumeBox">ยังไม่ได้โหลดข่าววันนี้ค่ะ ถ้าข่าวยังไม่ขึ้น ให้กดหมวดด้านบนเพื่อค้นข่าวใหม่อีกครั้ง</div>}
             <div className="newsList">
               {newsItems.map((n, i) => (
                 <div className="newsItem" key={`${n.link}-${i}`}>
