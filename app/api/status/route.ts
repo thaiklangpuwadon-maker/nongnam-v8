@@ -13,17 +13,21 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 type ChatItem = { role: 'user' | 'assistant'; text: string; ts?: number }
-
 type Body = {
   memory?: any
   recent?: ChatItem[]
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
+  clientTimestampMs?: number
+  clientTimeText?: string
+  clientDateText?: string
+  clientDateTimeText?: string
   clientNowISO?: string
   clientTimeZone?: string
   clientUtcOffsetMinutes?: number
   clientHour?: number
   clientMinute?: number
+  clientSecond?: number
   clientDayOfWeek?: number
   clientYear?: number
   clientMonth?: number
@@ -55,18 +59,7 @@ export async function POST(req: NextRequest) {
       preferredPersonality: memory.preferredPersonality,
     })
 
-    const timeTruth = buildTimeTruthLite({
-      clientNowISO: body.clientNowISO,
-      clientTimeZone: body.clientTimeZone,
-      clientUtcOffsetMinutes: body.clientUtcOffsetMinutes,
-      clientHour: body.clientHour,
-      clientMinute: body.clientMinute,
-      clientDayOfWeek: body.clientDayOfWeek,
-      clientYear: body.clientYear,
-      clientMonth: body.clientMonth,
-      clientDate: body.clientDate,
-    })
-
+    const timeTruth = buildTimeTruthLite(body)
     const truthNow = timeTruthToBranchDate(timeTruth)
     const recentString = recentText(recent)
 
@@ -84,12 +77,14 @@ export async function POST(req: NextRequest) {
       timeTruth,
       visibleStatus,
       debug: {
-        mustBeClientLocalParts: timeTruth.source === 'client_local_parts',
+        mustBeClientTextAndParts: timeTruth.source === 'client_text_and_parts',
+        receivedClientTimeText: body.clientTimeText,
         receivedClientHour: body.clientHour,
         receivedClientMinute: body.clientMinute,
+        receivedClientTimestampMs: body.clientTimestampMs,
       },
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'open-status-v11.15.4',
+      source: 'open-status-v11.15.5',
     })
   } catch (error) {
     return json({

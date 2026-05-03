@@ -1,39 +1,66 @@
 /*
- * timeTruthBranchLite.ts — v11.15.4 UI-Time Truth Lock
- * ----------------------------------------------------
- * จุดประสงค์:
- * - เวลาที่ใช้ตอบผู้ใช้ต้องมาจากเครื่องผู้ใช้โดยตรง
- * - ถ้า page.tsx ส่ง clientHour/clientMinute มาแล้ว source ต้องเป็น client_local_parts
- * - ห้ามให้ LLM เดาเวลาเอง
+ * timeTruthBranchLite.ts — Nong Nam v11.15.5 Force Client Timestamp
+ * -----------------------------------------------------------------
+ * หลักใหม่:
+ * Browser เป็นเจ้าของเวลา
+ * Server เป็นแค่คนรับเวลา
+ * AI เป็นแค่คนใช้เวลา
+ *
+ * ห้ามใช้เวลา server เป็นหลัก ถ้า browser ส่งเวลาเข้ามาแล้ว
  */
 
 export type TimeTruthInput = {
-  clientNowISO?: string
+  // เวลาดิบจากเครื่องผู้ใช้
+  clientTimestampMs?: number
+
+  // เวลาเป็นข้อความที่ browser แปลงให้แล้ว
+  clientTimeText?: string
+  clientDateText?: string
+  clientDateTimeText?: string
+
+  // timezone เครื่องผู้ใช้
   clientTimeZone?: string
   clientUtcOffsetMinutes?: number
+
+  // local parts จากเครื่องผู้ใช้
   clientHour?: number
   clientMinute?: number
+  clientSecond?: number
   clientDayOfWeek?: number
   clientYear?: number
   clientMonth?: number
   clientDate?: number
+
+  // fallback เท่านั้น
+  clientNowISO?: string
   serverNow?: Date
 }
 
 export type TimeTruthLite = {
-  version: 'v11.15.4-ui-time-truth-lock'
-  source: 'client_local_parts' | 'client_iso' | 'server_fallback'
+  version: 'v11.15.5-force-client-timestamp'
+  source: 'client_text_and_parts' | 'client_local_parts' | 'client_timestamp' | 'client_iso' | 'server_fallback'
+
+  timestampMs: number
   iso: string
+
   timeZone: string
   utcOffsetMinutes: number | null
+
   hour: number
   minute: number
+  second: number
   dayOfWeek: number
   year: number
   month: number
   date: number
+
   period: string
+
   thaiTimeText: string
+  thaiDateText: string
+  thaiDateTimeText: string
+
+  seedStamp: string
   debugText: string
   promptHint: string
 }
@@ -71,42 +98,88 @@ function thaiClockText(hour: number, minute: number) {
   return `${pad(hour)}:${mm}`
 }
 
+function fallbackDateText(year: number, month: number, date: number) {
+  return `${date}/${month}/${year}`
+}
+
+function safeText(v: unknown) {
+  return typeof v === 'string' && v.trim() ? v.trim() : ''
+}
+
 export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
   const serverNow = input.serverNow || new Date()
   const timeZone = input.clientTimeZone || 'unknown'
   const utcOffsetMinutes = typeof input.clientUtcOffsetMinutes === 'number' ? input.clientUtcOffsetMinutes : null
 
   let source: TimeTruthLite['source'] = 'server_fallback'
+
+  let timestampMs = serverNow.getTime()
   let iso = serverNow.toISOString()
 
   let hour = serverNow.getHours()
   let minute = serverNow.getMinutes()
+  let second = serverNow.getSeconds()
   let dayOfWeek = serverNow.getDay()
   let year = serverNow.getFullYear()
   let month = serverNow.getMonth() + 1
   let date = serverNow.getDate()
 
+  const hasText = Boolean(safeText(input.clientTimeText))
   const hasLocalParts =
     validNumber(input.clientHour, 0, 23) &&
     validNumber(input.clientMinute, 0, 59) &&
     validNumber(input.clientDayOfWeek, 0, 6)
 
-  if (hasLocalParts) {
-    source = 'client_local_parts'
-    hour = input.clientHour
-    minute = input.clientMinute
-    dayOfWeek = input.clientDayOfWeek
+  const hasTimestamp = validNumber(input.clientTimestampMs, 0, Number.MAX_SAFE_INTEGER)
+
+  if (hasText && hasLocalParts) {
+    source = 'client_text_and_parts'
+    timestampMs = hasTimestamp ? input.clientTimestampMs! : timestampMs
+    iso = input.clientNowISO || (hasTimestamp ? new Date(input.clientTimestampMs!).toISOString() : iso)
+
+    hour = input.clientHour!
+    minute = input.clientMinute!
+    second = validNumber(input.clientSecond, 0, 59) ? input.clientSecond : 0
+    dayOfWeek = input.clientDayOfWeek!
     year = validNumber(input.clientYear, 1900, 3000) ? input.clientYear : year
     month = validNumber(input.clientMonth, 1, 12) ? input.clientMonth : month
     date = validNumber(input.clientDate, 1, 31) ? input.clientDate : date
-    iso = input.clientNowISO || serverNow.toISOString()
+  } else if (hasLocalParts) {
+    source = 'client_local_parts'
+    timestampMs = hasTimestamp ? input.clientTimestampMs! : timestampMs
+    iso = input.clientNowISO || (hasTimestamp ? new Date(input.clientTimestampMs!).toISOString() : iso)
+
+    hour = input.clientHour!
+    minute = input.clientMinute!
+    second = validNumber(input.clientSecond, 0, 59) ? input.clientSecond : 0
+    dayOfWeek = input.clientDayOfWeek!
+    year = validNumber(input.clientYear, 1900, 3000) ? input.clientYear : year
+    month = validNumber(input.clientMonth, 1, 12) ? input.clientMonth : month
+    date = validNumber(input.clientDate, 1, 31) ? input.clientDate : date
+  } else if (hasTimestamp) {
+    source = 'client_timestamp'
+    timestampMs = input.clientTimestampMs!
+    iso = input.clientNowISO || new Date(timestampMs).toISOString()
+
+    // timestamp อย่างเดียวอาจกลายเป็น timezone server ตอน getHours()
+    // ใช้เป็น fallback เท่านั้น ถ้าไม่มี local parts
+    const d = new Date(timestampMs)
+    hour = d.getHours()
+    minute = d.getMinutes()
+    second = d.getSeconds()
+    dayOfWeek = d.getDay()
+    year = d.getFullYear()
+    month = d.getMonth() + 1
+    date = d.getDate()
   } else if (input.clientNowISO) {
     const parsed = new Date(input.clientNowISO)
     if (!Number.isNaN(parsed.getTime())) {
       source = 'client_iso'
+      timestampMs = parsed.getTime()
       iso = parsed.toISOString()
       hour = parsed.getHours()
       minute = parsed.getMinutes()
+      second = parsed.getSeconds()
       dayOfWeek = parsed.getDay()
       year = parsed.getFullYear()
       month = parsed.getMonth() + 1
@@ -115,47 +188,82 @@ export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
   }
 
   const period = periodFromHour(hour)
-  const thaiTimeText = thaiClockText(hour, minute)
+
+  const thaiTimeText = safeText(input.clientTimeText) || thaiClockText(hour, minute)
+  const thaiDateText = safeText(input.clientDateText) || fallbackDateText(year, month, date)
+  const thaiDateTimeText =
+    safeText(input.clientDateTimeText) ||
+    `${thaiDateText} เวลา ${thaiTimeText}`
+
+  const seedStamp = [
+    timestampMs,
+    timeZone,
+    year,
+    month,
+    date,
+    hour,
+    minute,
+    second,
+    dayOfWeek,
+  ].join('|')
 
   return {
-    version: 'v11.15.4-ui-time-truth-lock',
+    version: 'v11.15.5-force-client-timestamp',
     source,
+    timestampMs,
     iso,
     timeZone,
     utcOffsetMinutes,
     hour,
     minute,
+    second,
     dayOfWeek,
     year,
     month,
     date,
     period,
     thaiTimeText,
-    debugText: `source=${source}; local=${pad(hour)}:${pad(minute)}; tz=${timeZone}; offset=${utcOffsetMinutes}`,
-    promptHint: `เวลาจริงตอนนี้คือ ${thaiTimeText} ช่วง${period}. ถ้าถามเวลา ให้ตอบค่านี้เท่านั้น`,
+    thaiDateText,
+    thaiDateTimeText,
+    seedStamp,
+    debugText: `source=${source}; time=${thaiTimeText}; date=${thaiDateText}; local=${pad(hour)}:${pad(minute)}:${pad(second)}; tz=${timeZone}; ts=${timestampMs}`,
+    promptHint: `เวลาจริงจากเครื่องผู้ใช้คือ ${thaiDateTimeText}. ถ้าถามเวลา/วันนี้/เมื่อวาน/พรุ่งนี้ ให้ยึดค่านี้เท่านั้น`,
   }
 }
 
 export function timeTruthToBranchDate(time: TimeTruthLite): Date {
+  // ใช้ local parts ที่ browser ส่งมาเพื่อหลอก branch เดิมให้เห็นเวลา local ถูกต้อง
   const d = new Date()
   d.setFullYear(time.year, time.month - 1, time.date)
-  d.setHours(time.hour, time.minute, 0, 0)
+  d.setHours(time.hour, time.minute, time.second, 0)
   return d
 }
 
 export function summarizeTimeTruthForPrompt(time: TimeTruthLite) {
   return `
-[Time Truth v11.15.4 — เวลาจริง ห้ามเดา]
+[Time Truth v11.15.5 — เวลาจริงจากเครื่องผู้ใช้ ห้ามเดา]
 source=${time.source}
+timestampMs=${time.timestampMs}
 timeZone=${time.timeZone}
+utcOffsetMinutes=${time.utcOffsetMinutes}
 hour=${time.hour}
 minute=${time.minute}
+second=${time.second}
+dayOfWeek=${time.dayOfWeek}
+date=${time.date}
+month=${time.month}
+year=${time.year}
 period=${time.period}
 thaiTimeText=${time.thaiTimeText}
+thaiDateText=${time.thaiDateText}
+thaiDateTimeText=${time.thaiDateTimeText}
 
 คำสั่งเด็ดขาด:
 - ถ้าผู้ใช้ถามเวลา ให้ตอบตาม thaiTimeText เท่านั้น
+- ถ้าผู้ใช้ถามวันนี้ ให้ตอบตาม thaiDateText เท่านั้น
+- ถ้าผู้ใช้ถามเมื่อวาน/พรุ่งนี้ ให้เทียบจาก year/month/date นี้เท่านั้น
+- ห้ามใช้เวลา server, UTC, Vercel, หรืออเมริกาเป็นเวลาหลัก
 - ห้ามเดาเวลาเอง
-- ถ้า source=client_local_parts แปลว่าเวลามาจากเครื่องผู้ใช้โดยตรง
+- source ที่ดีที่สุดคือ client_text_and_parts หรือ client_local_parts
 `.trim()
 }

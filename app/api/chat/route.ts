@@ -22,11 +22,16 @@ type Body = {
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
 
+  clientTimestampMs?: number
+  clientTimeText?: string
+  clientDateText?: string
+  clientDateTimeText?: string
   clientNowISO?: string
   clientTimeZone?: string
   clientUtcOffsetMinutes?: number
   clientHour?: number
   clientMinute?: number
+  clientSecond?: number
   clientDayOfWeek?: number
   clientYear?: number
   clientMonth?: number
@@ -63,6 +68,8 @@ function detectIntent(message: string) {
   const aboutNam = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(m)
 
   if (/(กี่โมง|กี่ทุ่ม|เวลาเท่าไหร่|ตอนนี้เวลา|ตอนนี้กี่|กี่นาฬิกา)/i.test(m)) return 'time_question'
+  if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่)/i.test(m)) return 'date_question'
+  if (/(เมื่อวาน|พรุ่งนี้|คืนพรุ่งนี้|เมื่อคืน|เมื่อเช้า)/i.test(m)) return 'relative_date_question'
   if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
   if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
@@ -78,6 +85,30 @@ function violates(reply: string) {
   return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ)/i.test(reply)
 }
 
+function relativeDateReply(message: string, timeTruth: TimeTruthLite) {
+  const base = new Date()
+  base.setFullYear(timeTruth.year, timeTruth.month - 1, timeTruth.date)
+  base.setHours(timeTruth.hour, timeTruth.minute, timeTruth.second, 0)
+
+  let offset = 0
+  if (/เมื่อวาน|เมื่อคืน|เมื่อเช้า/i.test(message)) offset = -1
+  if (/พรุ่งนี้|คืนพรุ่งนี้/i.test(message)) offset = 1
+
+  const d = new Date(base)
+  d.setDate(base.getDate() + offset)
+
+  const text = d.toLocaleDateString('th-TH', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+
+  if (offset === -1) return `เมื่อวานคือ ${text} พี่`
+  if (offset === 1) return `พรุ่งนี้คือ ${text} พี่`
+  return `วันนี้คือ ${timeTruth.thaiDateText} พี่`
+}
+
 function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visibleStatus: any, dna: any, life: any, bodyAuto: any, sub: any, micro: any) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
@@ -85,29 +116,19 @@ function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visi
 
   let reply = ''
 
-  if (intent === 'time_question') {
-    reply = `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`
-  } else if (intent === 'news_should_be_client') {
-    reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
-  } else if (intent === 'reminder') {
-    reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
-  } else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) {
-    reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
-  } else if (intent === 'nam_activity') {
-    reply = `${interjection}ตอนนี้น้ำ${life?.scene?.activity ? ' ' + String(life.scene.activity).split('แล้ว')[0].trim() : 'อยู่แถวห้อง'}อยู่`
-  } else if (intent === 'nam_food') {
-    reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
-  } else if (intent === 'complaint') {
-    reply = `${interjection}น้ำพลาดจริง เดี๋ยวตั้งหลักตอบให้ตรงกว่านี้`
-  } else if (intent === 'care') {
-    reply = `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
-  } else if (intent === 'flirt') {
-    reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
-  } else if (intent === 'romantic_physical') {
-    reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
-  } else {
-    reply = `${interjection}${call}พูดมา น้ำฟังอยู่… เอ้ย ไม่ใช่ น้ำจะตอบให้ตรงกว่าเดิม`
-  }
+  if (intent === 'time_question') reply = `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`
+  else if (intent === 'date_question') reply = `วันนี้คือ ${timeTruth.thaiDateText} พี่`
+  else if (intent === 'relative_date_question') reply = relativeDateReply(message, timeTruth)
+  else if (intent === 'news_should_be_client') reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
+  else if (intent === 'reminder') reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
+  else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
+  else if (intent === 'nam_activity') reply = `${interjection}ตอนนี้น้ำ${life?.scene?.activity ? ' ' + String(life.scene.activity).split('แล้ว')[0].trim() : 'อยู่แถวห้อง'}อยู่`
+  else if (intent === 'nam_food') reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
+  else if (intent === 'complaint') reply = `${interjection}น้ำพลาดจริง เดี๋ยวตั้งหลักตอบให้ตรงกว่านี้`
+  else if (intent === 'care') reply = `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
+  else if (intent === 'flirt') reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
+  else if (intent === 'romantic_physical') reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
+  else reply = `${interjection}${call}พูดมา น้ำจะตอบให้ตรงกว่าเดิม`
 
   if (sub) reply = compactHumanReply(reply, sub)
   if (micro) reply = microCompactReply(reply, micro)
@@ -142,8 +163,10 @@ ${summarizeHumanSubBranchForPrompt(sub)}
 ${summarizeHumanMicroBranchForPrompt(micro)}
 
 กฎตอบ:
-- เวลาจริงตอนนี้คือ "${timeTruth.thaiTimeText}" ช่วง${timeTruth.period}; ถ้าผู้ใช้ถามเวลา ให้ตอบค่านี้เท่านั้น ห้ามเดาเด็ดขาด
-- ถ้าถาม "ตอนนี้กี่ทุ่ม" ให้คำนวณจาก hour=${timeTruth.hour}, minute=${timeTruth.minute} เท่านั้น
+- เวลาจริงจากเครื่องผู้ใช้คือ "${timeTruth.thaiDateTimeText}"
+- ถ้าถามเวลา ให้ตอบ "${timeTruth.thaiTimeText}" เท่านั้น ห้ามเดา
+- ถ้าถามวันนี้ ให้ตอบ "${timeTruth.thaiDateText}" เท่านั้น
+- ถ้าถามเมื่อวาน/พรุ่งนี้ ให้เทียบจาก date/month/year ใน Time Truth เท่านั้น
 - สถานะที่ผู้ใช้เห็นคือ "${visibleStatus.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
 - ตอบประเด็นล่าสุดก่อนเสมอ
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
@@ -152,7 +175,6 @@ ${summarizeHumanMicroBranchForPrompt(micro)}
 - ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
 - ความยาวประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
 - ถ้าผู้ใช้ถามข่าว อย่าสรุปข่าวปลอมเอง ให้บอกว่าจะไปไล่ข่าวมาให้
-- ความใกล้ชิดทางกาย/ทางเพศพูดได้แค่เชิงโรแมนติกอ้อม ๆ นุ่ม ๆ สมัครใจ และไม่ explicit
 
 ข้อความล่าสุดของ${call}: ${message}
 
@@ -180,18 +202,7 @@ export async function POST(req: NextRequest) {
       preferredPersonality: memory.preferredPersonality,
     })
 
-    const timeTruth = buildTimeTruthLite({
-      clientNowISO: body.clientNowISO,
-      clientTimeZone: body.clientTimeZone,
-      clientUtcOffsetMinutes: body.clientUtcOffsetMinutes,
-      clientHour: body.clientHour,
-      clientMinute: body.clientMinute,
-      clientDayOfWeek: body.clientDayOfWeek,
-      clientYear: body.clientYear,
-      clientMonth: body.clientMonth,
-      clientDate: body.clientDate,
-    })
-
+    const timeTruth = buildTimeTruthLite(body)
     const truthNow = timeTruthToBranchDate(timeTruth)
     const recentString = recentText(recent)
 
@@ -203,15 +214,15 @@ export async function POST(req: NextRequest) {
     const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString, now: truthNow })
     const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
 
-    // ถ้าถามเวลา ตอบ local ทันที ไม่ส่งให้ LLM เดา
-    if (detectIntent(message) === 'time_question') {
+    const intent = detectIntent(message)
+    if (intent === 'time_question' || intent === 'date_question' || intent === 'relative_date_question') {
       return json({
-        reply: `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`,
+        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
         companionDNA: dna,
         timeTruth,
         visibleStatus,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'time-truth-direct-v11.15.3',
+        source: 'time-truth-direct-v11.15.5',
       })
     }
 
@@ -229,7 +240,7 @@ export async function POST(req: NextRequest) {
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'local-v11.15.3',
+        source: 'local-v11.15.5',
       })
     }
 
@@ -258,7 +269,7 @@ export async function POST(req: NextRequest) {
         timeTruth,
         visibleStatus,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'api-error-v11.15.3',
+        source: 'api-error-v11.15.5',
         status: res.status,
       })
     }
@@ -281,7 +292,7 @@ export async function POST(req: NextRequest) {
       humanBodyAutonomy: bodyAuto,
       humanCoreDesire: core,
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'openai-v11.15.3',
+      source: 'openai-v11.15.5',
     })
   } catch (error) {
     return json({
