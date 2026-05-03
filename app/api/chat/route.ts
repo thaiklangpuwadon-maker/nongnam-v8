@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  analyzeMessage,
   buildSystemPrompt,
   cleanAssistantText,
   defaultEmotionalState,
@@ -11,7 +10,17 @@ import {
   updateEmotionalState,
   type AppMemoryInput,
   type ChatItem,
+  type EmotionalMemory,
+  type EmotionalState,
 } from '../../lib/companionDNA'
+import {
+  humanLocalReply,
+  isRoboticPhrase,
+  runHumanWheel,
+  type ClientTime,
+  type HumanGraphState,
+  type HumanWheelMemory,
+} from '../../lib/humanWheel'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +30,10 @@ type Body = {
   memory?: AppMemoryInput
   recent?: ChatItem[]
   mode?: 'local' | 'api-light' | 'api-deep' | 'api-search' | string
+  eventHint?: string
+  humanGraphState?: HumanGraphState
+  previousLastSeenAt?: string
+  clientTime?: ClientTime
 }
 
 function json(data: unknown, status = 200) {
@@ -41,9 +54,43 @@ function modelFromMode(mode?: string) {
 }
 
 function temperatureFromMode(mode?: string) {
-  if (mode === 'api-deep') return 0.92
-  if (mode === 'api-search') return 0.65
-  return 0.88
+  if (mode === 'api-deep') return 0.86
+  if (mode === 'api-search') return 0.55
+  return 0.82
+}
+
+function maxTokensFromMode(mode?: string) {
+  if (mode === 'api-deep') return 480
+  if (mode === 'api-search') return 360
+  return 280
+}
+
+function composeSystemPrompt(basePrompt: string, humanContext: string) {
+  return `${basePrompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[HUMAN LIFE ENGINE CONTEXT]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${humanContext}
+
+[FINAL OUTPUT RULE]
+ตอบเฉพาะข้อความที่จะส่งให้ผู้ใช้เห็นเท่านั้น ห้ามอธิบายระบบ ห้ามบอก responseMode ห้ามบอกว่ากำลังหมุนวงล้อ ห้ามใช้ JSON ห้ามใช้หัวข้อยาว ๆ ถ้าไม่จำเป็น
+`.trim()
+}
+
+function stripForbiddenDefault(reply: string) {
+  let out = reply || ''
+  const replacements: Array<[RegExp, string]> = [
+    [/พักผ่อนเยอะ ๆ นะคะ/g, 'ไปนอนเถอะ เดี๋ยวน้ำก็ไปเหมือนกัน'],
+    [/ดูแลตัวเองด้วยนะคะ/g, 'อย่าฝืนตัวเองมากนักล่ะ'],
+    [/น้องน้ำเข้าใจพี่นะคะ/g, 'น้ำฟังอยู่นะ'],
+    [/ถ้ามีอะไรให้ช่วยบอกได้เลย/g, 'พูดต่อได้ น้ำยังฟังอยู่'],
+    [/น้ำจะพยายามจำให้ต่อเนื่อง/g, 'น้ำจะจำให้มันต่อกัน ไม่เปลี่ยนไปเปลี่ยนมา'],
+    [/รับทราบค่ะ/g, 'อือ ได้'],
+    [/ยินดีช่วยค่ะ/g, 'ได้ เดี๋ยวน้ำดูให้'],
+  ]
+  for (const [re, replacement] of replacements) out = out.replace(re, replacement)
+  return out.trim()
 }
 
 export async function POST(req: NextRequest) {
@@ -59,28 +106,61 @@ export async function POST(req: NextRequest) {
     }
 
     const dna = ensureCompanionDNA(appMemory)
-    const baseState = appMemory.emotionalState || defaultEmotionalState(dna, appMemory)
-    const event = analyzeMessage(message)
-    const nextState = updateEmotionalState(baseState, event, dna, message)
-    const nextEmotionalMemory = updateEmotionalMemory(appMemory.emotionalMemory || {}, event, message)
-    const systemPrompt = buildSystemPrompt({
+    const baseState: EmotionalState = appMemory.emotionalState || defaultEmotionalState(dna, appMemory)
+    const legacyEvent = (() => {
+      try {
+        // Keep the old emotional core alive for backward compatibility.
+        // buildSystemPrompt still benefits from this event analysis.
+        const mod = require('../../lib/companionDNA')
+        return mod.analyzeMessage(message)
+      } catch {
+        return { intent: 'normal_chat', isFactual: false, isPersonal: true, emotionalShift: [], userTone: 'neutral', directive: 'คุยธรรมชาติ' }
+      }
+    })()
+    const nextState = updateEmotionalState(baseState, legacyEvent, dna, message)
+    const legacyMemory = updateEmotionalMemory(appMemory.emotionalMemory || {}, legacyEvent, message)
+
+    const wheel = runHumanWheel({
+      userMessage: message,
+      eventHint: body.eventHint,
       dna,
-      state: nextState,
-      emotionalMemory: nextEmotionalMemory,
-      appMemory,
-      event,
+      appMemory: { ...appMemory, emotionalState: nextState, emotionalMemory: legacyMemory },
+      emotionalState: nextState,
+      emotionalMemory: legacyMemory as EmotionalMemory | HumanWheelMemory,
+      humanGraphState: body.humanGraphState || (legacyMemory as HumanWheelMemory).humanGraphState,
+      previousLastSeenAt: body.previousLastSeenAt || legacyMemory.lastSeenAt,
+      clientTime: body.clientTime,
+      recent,
     })
 
+    const basePrompt = buildSystemPrompt({
+      dna,
+      state: nextState,
+      emotionalMemory: wheel.updatedMemory,
+      appMemory,
+      event: legacyEvent,
+    })
+    const systemPrompt = composeSystemPrompt(basePrompt, wheel.promptContext)
+
     const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      const reply = fallbackHumanReply({ message, dna, state: nextState, event, appMemory })
+    if (!apiKey || mode === 'local') {
+      const reply = humanLocalReply({ message, dna, wheel, appMemory })
       return json({
         reply,
         companionDNA: dna,
         emotionalState: nextState,
-        emotionalMemory: nextEmotionalMemory,
-        event,
-        source: 'local-fallback-no-key',
+        emotionalMemory: wheel.updatedMemory,
+        updatedHumanGraphState: wheel.updatedGraph,
+        updatedLastSeenAt: wheel.clientTime.iso,
+        event: legacyEvent,
+        eventTags: wheel.eventTags,
+        responseModeUsed: wheel.responseWheel.responseMode,
+        bodyStateUsed: wheel.bodyState.label,
+        desireUsed: wheel.desireState.primaryDesire,
+        lifeStatusText: wheel.lifeStatus.visibleText,
+        lifeStatus: wheel.lifeStatus.status,
+        realityMode: wheel.realityMode,
+        source: 'local-human-life-no-key',
       })
     }
 
@@ -100,39 +180,58 @@ export async function POST(req: NextRequest) {
         model: modelFromMode(mode),
         messages: openAIMessages,
         temperature: temperatureFromMode(mode),
-        max_tokens: mode === 'api-deep' ? 420 : 260,
-        presence_penalty: 0.35,
-        frequency_penalty: 0.35,
+        max_tokens: maxTokensFromMode(mode),
+        presence_penalty: 0.55,
+        frequency_penalty: 0.65,
       }),
       cache: 'no-store',
     })
 
     if (!res.ok) {
-      const fallback = fallbackHumanReply({ message, dna, state: nextState, event, appMemory })
+      const fallback = humanLocalReply({ message, dna, wheel, appMemory }) || fallbackHumanReply({ message, dna, state: nextState, event: legacyEvent, appMemory })
       return json({
         reply: fallback,
         companionDNA: dna,
         emotionalState: nextState,
-        emotionalMemory: nextEmotionalMemory,
-        event,
-        source: 'local-fallback-api-error',
+        emotionalMemory: wheel.updatedMemory,
+        updatedHumanGraphState: wheel.updatedGraph,
+        updatedLastSeenAt: wheel.clientTime.iso,
+        event: legacyEvent,
+        eventTags: wheel.eventTags,
+        responseModeUsed: wheel.responseWheel.responseMode,
+        bodyStateUsed: wheel.bodyState.label,
+        desireUsed: wheel.desireState.primaryDesire,
+        lifeStatusText: wheel.lifeStatus.visibleText,
+        lifeStatus: wheel.lifeStatus.status,
+        realityMode: wheel.realityMode,
+        source: 'local-human-life-api-error',
       })
     }
 
     const data = await res.json()
     let reply = cleanAssistantText(data?.choices?.[0]?.message?.content || '')
+    reply = stripForbiddenDefault(reply)
 
-    if (!reply || looksRobotic(reply)) {
-      reply = fallbackHumanReply({ message, dna, state: nextState, event, appMemory })
+    if (!reply || looksRobotic(reply) || isRoboticPhrase(reply)) {
+      reply = humanLocalReply({ message, dna, wheel, appMemory })
     }
 
     return json({
       reply,
       companionDNA: dna,
       emotionalState: nextState,
-      emotionalMemory: nextEmotionalMemory,
-      event,
-      source: 'openai-human-core',
+      emotionalMemory: wheel.updatedMemory,
+      updatedHumanGraphState: wheel.updatedGraph,
+      updatedLastSeenAt: wheel.clientTime.iso,
+      event: legacyEvent,
+      eventTags: wheel.eventTags,
+      responseModeUsed: wheel.responseWheel.responseMode,
+      bodyStateUsed: wheel.bodyState.label,
+      desireUsed: wheel.desireState.primaryDesire,
+      lifeStatusText: wheel.lifeStatus.visibleText,
+      lifeStatus: wheel.lifeStatus.status,
+      realityMode: wheel.realityMode,
+      source: 'openai-human-life-core',
     })
   } catch (error) {
     return json({
