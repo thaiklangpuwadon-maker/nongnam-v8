@@ -6,10 +6,10 @@ import {
   type ChatItem,
 } from '../../lib/companionDNA'
 import {
-  badHumanOutput,
-  buildSlimHumanPrompt,
+  buildHumanPrompt,
   cleanOutput,
-  runCleanHumanCore,
+  isBadOutput,
+  runMeaningHumanCore,
   type HumanState,
 } from '../../lib/humanWheel'
 
@@ -35,8 +35,14 @@ function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status })
 }
 
+function makeRequestSalt() {
+  const c = globalThis.crypto
+  if (c && 'randomUUID' in c) return c.randomUUID()
+  return `${Date.now()}-${Math.random()}`
+}
+
 function safeRecent(recent: ChatItem[] = []) {
-  const bad = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโนไม่ได้|เรื่องสมมติ|จะจำไว้|ปฏิทินของเกาหลี|ต้องเช็กข้อมูลจริง|ไม่ควรเดาเอง|น้ำฟังอยู่นะ|ลึกกว่าที่เห็น|คำถามธรรมดา|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย)/i
+  const bad = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|เรื่องสมมติ|จะจำไว้|ปฏิทินของเกาหลี|ต้องเช็กข้อมูลจริง|น้ำฟังอยู่นะ|ลึกกว่าที่เห็น|คำถามธรรมดา|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|พี่พูดต่อได้เลย|ที่รัก)/i
   return recent
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
     .filter(m => !bad.test(m.text))
@@ -62,47 +68,44 @@ export async function POST(req: NextRequest) {
     }
 
     const dna = ensureCompanionDNA(appMemory)
+    const requestSalt = makeRequestSalt()
 
-    const core = runCleanHumanCore({
+    const result = runMeaningHumanCore({
       message,
       dna,
       appMemory,
       recent,
       clientTime: body.clientTime,
       humanGraphState: body.humanGraphState,
+      requestSalt,
     })
 
-    // สำหรับโลกที่เคยพังบ่อย ให้ใช้คำตอบ local ทันที ไม่ให้โมเดลตีความเอง
-    if (core.shouldUseLocalReply || mode === 'local') {
+    if (result.shouldUseLocalReply || mode === 'local') {
       return json({
-        reply: core.fallbackReply,
+        reply: result.fallbackReply,
         companionDNA: dna,
-        updatedHumanGraphState: core.updatedHumanState,
-        updatedLastSeenAt: core.updatedLastSeenAt,
-        lifeStatusText: core.statusText,
-        world: core.world,
-        source: 'v8-clean-human-local',
+        updatedHumanGraphState: result.updatedHumanState,
+        updatedLastSeenAt: result.updatedLastSeenAt,
+        lifeStatusText: result.statusText,
+        intent: result.intent,
+        world: result.world,
+        source: 'v9-meaning-local',
       })
     }
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) {
       return json({
-        reply: core.fallbackReply,
+        reply: result.fallbackReply,
         companionDNA: dna,
-        updatedHumanGraphState: core.updatedHumanState,
-        updatedLastSeenAt: core.updatedLastSeenAt,
-        lifeStatusText: core.statusText,
-        world: core.world,
-        source: 'v8-clean-human-no-key',
+        updatedHumanGraphState: result.updatedHumanState,
+        updatedLastSeenAt: result.updatedLastSeenAt,
+        lifeStatusText: result.statusText,
+        intent: result.intent,
+        world: result.world,
+        source: 'v9-meaning-no-key',
       })
     }
-
-    const messages = [
-      { role: 'system', content: buildSlimHumanPrompt(core) },
-      ...safeRecent(recent),
-      { role: 'user', content: message },
-    ]
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -112,7 +115,11 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: modelFromMode(mode),
-        messages,
+        messages: [
+          { role: 'system', content: buildHumanPrompt(result) },
+          ...safeRecent(recent),
+          { role: 'user', content: message },
+        ],
         temperature: mode === 'api-deep' ? 0.9 : 0.82,
         max_tokens: mode === 'api-deep' ? 360 : 180,
         presence_penalty: 0.35,
@@ -123,31 +130,33 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       return json({
-        reply: core.fallbackReply,
+        reply: result.fallbackReply,
         companionDNA: dna,
-        updatedHumanGraphState: core.updatedHumanState,
-        updatedLastSeenAt: core.updatedLastSeenAt,
-        lifeStatusText: core.statusText,
-        world: core.world,
-        source: 'v8-clean-human-api-fallback',
+        updatedHumanGraphState: result.updatedHumanState,
+        updatedLastSeenAt: result.updatedLastSeenAt,
+        lifeStatusText: result.statusText,
+        intent: result.intent,
+        world: result.world,
+        source: 'v9-meaning-api-fallback',
       })
     }
 
     const data = await res.json()
     let reply = cleanOutput(cleanAssistantText(data?.choices?.[0]?.message?.content || ''))
 
-    if (badHumanOutput(reply, core)) {
-      reply = core.fallbackReply
+    if (isBadOutput(reply, result)) {
+      reply = result.fallbackReply
     }
 
     return json({
       reply,
       companionDNA: dna,
-      updatedHumanGraphState: core.updatedHumanState,
-      updatedLastSeenAt: core.updatedLastSeenAt,
-      lifeStatusText: core.statusText,
-      world: core.world,
-      source: 'v8-clean-human-openai',
+      updatedHumanGraphState: result.updatedHumanState,
+      updatedLastSeenAt: result.updatedLastSeenAt,
+      lifeStatusText: result.statusText,
+      intent: result.intent,
+      world: result.world,
+      source: 'v9-meaning-openai',
     })
   } catch (error) {
     return json({
