@@ -41,6 +41,11 @@ import {
   summarizeVisibleStatusForPrompt,
   type VisibleStatusLite,
 } from '../../../lib/visibleStatusBranchLite'
+import {
+  buildTimeTruthLite,
+  summarizeTimeTruthForPrompt,
+  type TimeTruthLite,
+} from '../../../lib/timeTruthBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -54,6 +59,9 @@ type Body = {
   mode?: 'local' | 'api-light' | 'api-deep' | 'api-search' | string
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
+  clientNowISO?: string
+  clientTimeZone?: string
+  clientUtcOffsetMinutes?: number
 }
 
 function json(data: unknown, status = 200) {
@@ -88,6 +96,7 @@ function detectIntent(message: string) {
   const m = message.toLowerCase()
   const aboutNam = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(m)
 
+  if (/(กี่โมง|กี่ทุ่ม|เวลาเท่าไหร่|ตอนนี้เวลา|ตอนนี้กี่|กี่นาฬิกา)/i.test(m)) return 'time_question'
   if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
   if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
@@ -109,7 +118,8 @@ function localReply(
   life?: HumanLifeSceneBranchLite,
   bodyAuto?: HumanBodyAutonomyBranchLite,
   core?: HumanCoreDesireKilesaBranchLite,
-  status?: VisibleStatusLite
+  status?: VisibleStatusLite,
+  timeTruth?: TimeTruthLite
 ) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
@@ -119,7 +129,9 @@ function localReply(
 
   let reply = ''
 
-  if (intent === 'news_should_be_client') {
+  if (intent === 'time_question') {
+    reply = `ตอนนี้ ${timeTruth?.thaiTimeText || 'น้ำยังจับเวลาไม่ได้แน่ ๆ'} แล้วพี่`
+  } else if (intent === 'news_should_be_client') {
     reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   } else if (intent === 'reminder') {
     reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
@@ -175,8 +187,9 @@ function buildSystemPrompt(params: {
   bodyAuto: HumanBodyAutonomyBranchLite
   core: HumanCoreDesireKilesaBranchLite
   status: VisibleStatusLite
+  timeTruth: TimeTruthLite
 }) {
-  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, status } = params
+  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, status, timeTruth } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
   const call = memory?.userCallName || 'พี่'
 
@@ -187,6 +200,8 @@ function buildSystemPrompt(params: {
 ${summarizeDNAForPrompt(dna)}
 
 ${summarizeVisibleStatusForPrompt(status)}
+
+${summarizeTimeTruthForPrompt(timeTruth)}
 
 ${summarizeHumanLifeSceneForPrompt(life)}
 
@@ -202,6 +217,7 @@ ${summarizeHumanMicroBranchForPrompt(micro)}
 
 กฎตอบ:
 - ตอบประเด็นล่าสุดก่อนเสมอ
+- เวลาจริงตอนนี้คือ "${timeTruth.thaiTimeText}" ช่วง${timeTruth.period}; ถ้าผู้ใช้ถามเวลา ให้ตอบค่านี้เท่านั้น ห้ามเดา
 - สถานะที่ผู้ใช้เห็นคือ "${status.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
 - ใช้ DNA + Visible Status + Life Scene + Body/Autonomy + Core Desire + Deep Human Tree + Sub/Micro Branch
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
@@ -255,27 +271,36 @@ export async function POST(req: NextRequest) {
 
     const recentString = recentText(recent)
 
-    const layer = buildDeepHumanLayerLite({ dna, message, recentText: recentString, adultMode: memory?.adultMode === true })
+    const timeTruth = buildTimeTruthLite({
+      clientNowISO: body.clientNowISO,
+      clientTimeZone: body.clientTimeZone,
+      clientUtcOffsetMinutes: body.clientUtcOffsetMinutes,
+    })
+
+    const truthNow = new Date(timeTruth.iso)
+
+    const layer = buildDeepHumanLayerLite({ dna, message, recentText: recentString, adultMode: memory?.adultMode === true, now: truthNow })
     const sub = buildHumanSubBranchLite({ dna, layer, message, recentText: recentString })
     const micro = buildHumanMicroBranchLite({ dna, layer, sub, message, recentText: recentString })
-    const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message, recentText: recentString })
-    const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message, recentText: recentString })
-    const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString })
-    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message })
+    const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message, recentText: recentString, now: truthNow })
+    const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message, recentText: recentString, now: truthNow })
+    const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString, now: truthNow })
+    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || mode === 'local') {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth),
         companionDNA: dna,
         visibleStatus,
+        timeTruth,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
-        updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
         source: 'local-visible-status-lite',
       })
     }
@@ -286,7 +311,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, status: visibleStatus }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, status: visibleStatus, timeTruth }) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
@@ -300,16 +325,17 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth),
         companionDNA: dna,
         visibleStatus,
+        timeTruth,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
-        updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
         source: 'api-error-visible-status-fallback',
         status: res.status,
       })
@@ -317,7 +343,7 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus)
+    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth)
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
