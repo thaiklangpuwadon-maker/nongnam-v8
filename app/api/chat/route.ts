@@ -21,6 +21,11 @@ import {
   microCompactReply,
   type HumanMicroBranchLite,
 } from '../../../lib/humanMicroBranchLite'
+import {
+  buildHumanLifeSceneBranchLite,
+  summarizeHumanLifeSceneForPrompt,
+  type HumanLifeSceneBranchLite,
+} from '../../../lib/humanLifeSceneBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -78,11 +83,19 @@ function detectIntent(message: string) {
   return 'casual'
 }
 
-function localReply(message: string, memory: any = {}, dna?: CompanionDNALite, layer?: DeepHumanLayerLite, sub?: HumanSubBranchLite, micro?: HumanMicroBranchLite) {
+function localReply(
+  message: string,
+  memory: any = {},
+  dna?: CompanionDNALite,
+  layer?: DeepHumanLayerLite,
+  sub?: HumanSubBranchLite,
+  micro?: HumanMicroBranchLite,
+  life?: HumanLifeSceneBranchLite
+) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
   const style = dna?.archetype || 'sweet_clingy'
-  const body = layer?.branch?.bodyState ? ` ตอนนี้น้ำ${layer.branch.bodyState}นิดนึง` : ''
+  const body = life?.scene?.activity ? ` ${life.scene.activity.split('แล้ว')[0].trim()}` : ''
 
   let reply = ''
 
@@ -94,12 +107,9 @@ function localReply(message: string, memory: any = {}, dna?: CompanionDNALite, l
     else if (style === 'sleepy_homebody') reply = 'ยังเลยพี่ น้ำมัวแต่นอนกลิ้งอยู่'
     else reply = 'ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ'
   } else if (intent === 'nam_activity') {
-    if (style === 'sassy_tease') reply = `ทำหน้าเรียบร้อยอยู่${body} แต่ในหัวคิดเรื่องแกล้งพี่อยู่`
-    else if (style === 'quiet_cool') reply = `อยู่เงียบ ๆ แถวห้องนี่แหละ${body}`
-    else if (style === 'sleepy_homebody') reply = `นอนกลิ้งอยู่พี่${body} ยังไม่อยากลุกเลย`
-    else reply = `อยู่แถวห้องนี่แหละ${body} ใจจริงอยากแกล้งพี่นิด ๆ`
+    reply = body ? `ตอนนี้น้ำ${body}อยู่ พี่มีอะไรจะเล่าเหรอ` : `อยู่แถวห้องนี่แหละ ใจจริงอยากแกล้งพี่นิด ๆ`
   } else if (intent === 'complaint') {
-    reply = 'อือ น้ำยาวไปจริง เดี๋ยวตอบให้สั้นลงแล้วจับประเด็นก่อน'
+    reply = 'อือ น้ำจับจังหวะพลาดเอง เดี๋ยวตอบให้เป็นคนกว่านี้'
   } else if (intent === 'care') {
     reply = (dna?.traits.sweetness || 0) > 65
       ? 'มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้'
@@ -133,20 +143,24 @@ function buildSystemPrompt(params: {
   layer: DeepHumanLayerLite
   sub: HumanSubBranchLite
   micro: HumanMicroBranchLite
+  life: HumanLifeSceneBranchLite
 }) {
-  const { memory, message, dna, layer, sub, micro } = params
+  const { memory, message, dna, layer, sub, micro, life } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
   const call = memory?.userCallName || 'พี่'
   const dnaPrompt = summarizeDNAForPrompt(dna)
   const layerPrompt = summarizeDeepHumanLayerForPrompt(layer)
   const subPrompt = summarizeHumanSubBranchForPrompt(sub)
   const microPrompt = summarizeHumanMicroBranchForPrompt(micro)
+  const lifePrompt = summarizeHumanLifeSceneForPrompt(life)
 
   return `
 คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
 ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
 
 ${dnaPrompt}
+
+${lifePrompt}
 
 ${layerPrompt}
 
@@ -156,13 +170,15 @@ ${microPrompt}
 
 กฎตอบ:
 - ตอบประเด็นล่าสุดก่อนเสมอ
-- ใช้ DNA + Deep Human Tree + Sub Branch + Micro Branch
+- ใช้ DNA + Life Scene + Deep Human Tree + Sub Branch + Micro Branch
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
+- ห้ามเล่าฉากชีวิตทั้งหมด เว้นแต่ผู้ใช้ถามว่าทำอะไรอยู่
+- ให้กลิ่นชีวิตโผล่มาแค่ 1 จุด เช่น ง่วง หิว อยู่ห้อง ทำอะไรค้าง
 - ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
 - ห้ามตอบเป็นบทความ ห้ามสรุปเป็นข้อ ๆ ถ้าไม่ได้ถูกขอ
 - ความยาวให้ตาม Micro Branch: ประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
 - ถามกลับได้เท่าที่ Micro Branch อนุญาตเท่านั้น
-- ถ้าถามชีวิตของ${name} ให้ตอบเป็นชีวิตของ${name}ทันที
+- ถ้าถามชีวิตของ${name} ให้ตอบจาก Life Scene ทันที
 - ถ้าถูกตำหนิว่าตอบผิด/แข็ง/ยาว ให้ยอมรับสั้น ๆ แล้วแก้ทันที
 - ถ้าผู้ใช้ถามข่าว ให้บอกสั้น ๆ ว่าจะไปไล่ข่าวมาให้ อย่าสรุปข่าวปลอมเอง
 - ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
@@ -221,16 +237,26 @@ export async function POST(req: NextRequest) {
       recentText: recentString,
     })
 
+    const life = buildHumanLifeSceneBranchLite({
+      dna,
+      layer,
+      sub,
+      micro,
+      message,
+      recentText: recentString,
+    })
+
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || mode === 'local') {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro),
+        reply: localReply(message, memory, dna, layer, sub, micro, life),
         companionDNA: dna,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
+        humanLifeScene: life,
         updatedMemory: { ...memory, companionDNA: dna },
-        source: 'local-micro-branch-lite',
+        source: 'local-life-scene-branch-lite',
       })
     }
 
@@ -240,34 +266,35 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life }) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
         temperature: mode === 'api-deep' ? 0.96 : 0.9,
-        max_tokens: mode === 'api-deep' ? 420 : 230,
-        presence_penalty: 0.6,
-        frequency_penalty: 1.05,
+        max_tokens: mode === 'api-deep' ? 430 : 240,
+        presence_penalty: 0.62,
+        frequency_penalty: 1.08,
       }),
       cache: 'no-store',
     })
 
     if (!res.ok) {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro),
+        reply: localReply(message, memory, dna, layer, sub, micro, life),
         companionDNA: dna,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
+        humanLifeScene: life,
         updatedMemory: { ...memory, companionDNA: dna },
-        source: 'api-error-micro-branch-fallback',
+        source: 'api-error-life-scene-fallback',
         status: res.status,
       })
     }
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro)
+    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life)
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
@@ -277,8 +304,9 @@ export async function POST(req: NextRequest) {
       humanLayer: layer,
       humanSubBranch: sub,
       humanMicroBranch: micro,
+      humanLifeScene: life,
       updatedMemory: { ...memory, companionDNA: dna },
-      source: 'openai-micro-branch-lite',
+      source: 'openai-life-scene-branch-lite',
     })
   } catch (error) {
     return json({
