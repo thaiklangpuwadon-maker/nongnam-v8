@@ -3,7 +3,7 @@ import {
   ensureCompanionDNALite,
   summarizeDNAForPrompt,
   type CompanionDNALite,
-} from '../../lib/companionDNALite'
+} from '../../../lib/companionDNALite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
