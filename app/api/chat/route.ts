@@ -1,190 +1,209 @@
-import { NextRequest, NextResponse } from "next/server";
-import { buildDNA } from "../../../lib/humanSignature/dnaBuilder";
-import { buildRollContext, makeSeed, seededRandom, rollTree } from "../../../lib/humanSignature/engine";
-import { routeToTree } from "../../../lib/humanSignature/categoryRouter";
-import { buildHumanPrompt } from "../../../lib/humanSignature/promptBuilder";
-import type { CompanionMemory } from "../../../lib/humanSignature/types";
+import { NextRequest, NextResponse } from 'next/server'
 import {
-  buildHumanCore,
-  buildNoRobotSystem,
-  sanitizeHumanReply,
-} from "../../../lib/nongnamHumanCore";
+  ensureCompanionDNALite,
+  summarizeDNAForPrompt,
+  type CompanionDNALite,
+} from '../../lib/companionDNALite'
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-type ClientPayload = {
-  message: string;
-  memory?: {
-    gender?: "male" | "female";
-    nongnamName?: string;
-    userCallName?: string;
-    relationshipMode?: string;
-    personalityStyle?: string;
-    sulkyLevel?: string;
-    jealousLevel?: string;
-    affectionStyle?: string;
-    affectionScore?: number;
-    facts?: Array<{ key: string; value: string }>;
-    schedules?: Array<{ type: string; label: string; time: string }>;
-    recentMentions?: string[];
-    socialBattery?: number;
-  };
-  recent?: Array<{ role: string; text: string }>;
-  clientTimestamp?: string;
-  clientNonce?: string;
-};
+type ChatItem = { role: 'user' | 'assistant'; text: string; ts?: number }
+
+type Body = {
+  message?: string
+  memory?: any
+  recent?: ChatItem[]
+  mode?: 'local' | 'api-light' | 'api-deep' | 'api-search' | string
+  companionDNA?: CompanionDNALite | null
+  clientNonce?: string
+}
+
+function json(data: unknown, status = 200) {
+  return NextResponse.json(data, { status })
+}
+
+function cleanText(s: unknown) {
+  return String(s || '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/\[[\s\S]*?\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function safeRecent(recent: ChatItem[] = []) {
+  const banned = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|เรื่องสมมติ|จะจำไว้|ปฏิทินของเกาหลี|ต้องเช็กข้อมูลจริง|น้ำฟังอยู่นะ|ลึกกว่าที่เห็น|คำถามธรรมดา|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|พี่พูดต่อได้เลย)/i
+  return recent
+    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
+    .filter(m => !banned.test(m.text))
+    .slice(-6)
+    .map(m => ({ role: m.role, content: m.text }))
+}
+
+function detectIntent(message: string) {
+  const m = message.toLowerCase()
+  const aboutNam = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(m)
+
+  if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
+  if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
+  if (aboutNam && /(ทำอะไร|ทำไร|อยู่ไหน|ตอนนี้)/i.test(m)) return 'nam_activity'
+  if (/(ตอบผิด|คนละเรื่อง|ไม่ตรง|มั่ว|เหมือน ai|เหมือนหุ่นยนต์|น่าเบื่อ|ซ้ำ|load failed|เชื่อมต่อ)/i.test(m)) return 'complaint'
+  if (/(แฟนเก่า|คนเก่า|เศร้า|เหนื่อย|ไม่ไหว|ร้องไห้|เหงา)/i.test(m)) return 'care'
+  if (/(หอม|กอด|จูบ|คิดถึง|รัก|อ้อน)/i.test(m)) return 'flirt'
+  return 'casual'
+}
+
+function localReply(message: string, memory: any = {}, dna?: CompanionDNALite) {
+  const call = memory?.userCallName || 'พี่'
+  const intent = detectIntent(message)
+  const style = dna?.archetype || 'sweet_clingy'
+
+  if (intent === 'news_should_be_client') {
+    return 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน สนใจข่าวไหนค่อยให้น้ำสรุปเพิ่ม'
+  }
+
+  if (intent === 'nam_food') {
+    if (style === 'sassy_tease') return 'ยังไม่ได้กิน พี่ถามแบบนี้คือจะเลี้ยงใช่ไหม อย่าถามเอาบุญเฉย ๆ นะ'
+    if (style === 'quiet_cool') return 'ยัง ไม่ค่อยหิวเท่าไหร่ แต่พี่ถามแล้วก็เริ่มคิดเรื่องกินขึ้นมา'
+    if (style === 'sleepy_homebody') return 'ยังเลยพี่ น้ำมัวแต่นอนกลิ้งอยู่ พูดแล้วท้องเริ่มร้องอีกอะ'
+    return 'ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ'
+  }
+
+  if (intent === 'nam_activity') {
+    if (style === 'sassy_tease') return 'ตอนนี้น้ำทำหน้าเรียบร้อยอยู่ แต่ในหัวกำลังคิดว่าจะกวนพี่ยังไงดี'
+    if (style === 'quiet_cool') return 'อยู่เงียบ ๆ แถวห้องนี่แหละ ไม่ได้ทำอะไรใหญ่โต'
+    if (style === 'sleepy_homebody') return 'นอนกลิ้งอยู่พี่ ยังไม่อยากลุกเลย'
+    return 'ตอนนี้น้ำอยู่แถวห้องนี่แหละ ทำหน้าเหมือนเรียบร้อย แต่ในใจอยากแกล้งพี่นิด ๆ'
+  }
+
+  if (intent === 'complaint') {
+    return 'เออ อันนั้นน้ำหลุดจริง เดี๋ยวน้ำตอบให้ตรงก่อน ไม่ลากออกนอกเรื่องแล้ว'
+  }
+
+  if (intent === 'care') {
+    if ((dna?.traits.sweetness || 0) > 65) return 'อือ… มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้ น้ำอยู่ข้าง ๆ'
+    return 'ใจเย็นก่อนพี่ เล่าให้ฟังทีละนิดก็ได้ น้ำไม่เร่ง'
+  }
+
+  if (intent === 'flirt') {
+    if (style === 'soft_tsundere') return 'แหม… ใครเขาให้มาอ้อนง่าย ๆ กันล่ะ แต่ก็ไม่ได้บอกว่าไม่ชอบนะ'
+    if (style === 'sassy_tease') return 'อ้อนเก่งจังนะพี่ วันนี้ไปกินอะไรหวานมาเหรอ'
+    return 'แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลยนะ'
+  }
+
+  if (style === 'sassy_tease') return `${call}จะพูดอะไรก็พูดมา แต่อย่าทำให้น้ำต้องเดานานนะ`
+  if (style === 'quiet_cool') return `อืม ${call}พูดต่อได้ น้ำตามอยู่`
+  if (style === 'dramatic_sulky') return `${call}พูดมาได้เลย แต่น้ำจะตั้งใจฟังไหมก็ขึ้นอยู่กับว่าพี่พูดน่ารักแค่ไหน`
+  return `${call}พูดมา น้ำจะตอบให้ตรง ไม่วกออกนอกเรื่องแล้ว`
+}
+
+function violates(reply: string) {
+  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ)/i.test(reply)
+}
+
+function buildSystemPrompt(params: { memory: any; message: string; dna: CompanionDNALite }) {
+  const { memory, message, dna } = params
+  const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
+  const call = memory?.userCallName || 'พี่'
+  const dnaPrompt = summarizeDNAForPrompt(dna)
+
+  return `
+คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
+ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
+
+${dnaPrompt}
+
+กฎตอบ:
+- ตอบประเด็นล่าสุดก่อนเสมอ
+- ใช้ลายมือตาม DNA ด้านบน ไม่ใช่น้องน้ำกลาง ๆ
+- ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
+- ถ้าถามชีวิตของ${name} ให้ตอบเป็นชีวิตของ${name}ทันที
+- ถ้าถูกตำหนิว่าตอบผิด ให้ยอมรับสั้น ๆ แล้วแก้ทันที
+- ตอบสั้นแบบแชตจริง ไม่ต้องอธิบายยาว
+- ถ้าผู้ใช้ถามข่าว ให้บอกสั้น ๆ ว่าจะไปไล่ข่าวมาให้ อย่าสรุปข่าวปลอมเอง
+- อย่าอ่าน emoji เป็นคำพูด
+
+ข้อความล่าสุดของ${call}: ${message}
+
+ตอบเฉพาะคำพูดของ${name}เท่านั้น
+`.trim()
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as ClientPayload;
-    const message = String(body.message || "").trim();
+    const body = (await req.json().catch(() => ({}))) as Body
+    const message = String(body.message || '').trim()
+    const memory = body.memory || {}
+    const recent = Array.isArray(body.recent) ? body.recent : []
+    const mode = body.mode || memory.apiMode || 'api-light'
 
     if (!message) {
-      return NextResponse.json({
-        reply: "อืม... พี่ยังไม่ได้พิมพ์อะไรเลยนะ",
-        source: "validation-error",
-      });
+      return json({ reply: 'อืม… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', source: 'empty' })
     }
 
-    const m = body.memory || {};
-    const core = buildHumanCore(message, m);
+    const dna = ensureCompanionDNALite({
+      existingDNA: body.companionDNA || memory.companionDNA || null,
+      userId: memory.userId || memory.userName || memory.userCallName || body.clientNonce || 'local-user',
+      userName: memory.userName || memory.userCallName,
+      nongnamName: memory.nongnamName || 'น้องน้ำ',
+      gender: memory.nongnamGender || 'female',
+      age: memory.nongnamAge,
+      preferredPersonality: memory.preferredPersonality,
+    })
 
-    // High-risk intents are answered locally so they never become robotic.
-    if (core.forceLocal) {
-      return NextResponse.json({
-        reply: core.reply,
-        source: "v11-human-local",
-        intent: core.intent,
-        world: core.world,
-        mustAnswer: core.mustAnswer,
-      });
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey || mode === 'local') {
+      return json({
+        reply: localReply(message, memory, dna),
+        companionDNA: dna,
+        updatedMemory: { ...memory, companionDNA: dna },
+        source: 'local-dna-lite',
+      })
     }
 
-    const dna = buildDNA({
-      userCallName: m.userCallName || "พี่",
-      nongnamName: m.nongnamName || "น้องน้ำ",
-      relationshipMode: m.relationshipMode || "แฟน/คนรัก",
-      personalityStyle: m.personalityStyle,
-      sulkyLevel: m.sulkyLevel,
-      jealousLevel: m.jealousLevel,
-      affectionStyle: m.affectionStyle,
-      gender: m.gender,
-    });
-
-    const memory: CompanionMemory = {
-      lastMood: undefined,
-      lastTopic: undefined,
-      socialBattery: m.socialBattery ?? 70,
-      affectionScore: m.affectionScore ?? dna.baseAffection,
-      recentMentions: m.recentMentions || [],
-      facts: m.facts || [],
-      schedules: m.schedules || [],
-    };
-
-    const timestamp = body.clientTimestamp ? new Date(body.clientTimestamp) : new Date();
-    const ctx = buildRollContext(timestamp, dna, memory, message);
-    const routed = routeToTree(ctx);
-
-    const seed = makeSeed([
-      dna.fingerprint,
-      timestamp.toISOString(),
-      body.clientNonce || Math.random().toString(36),
-      message,
-      memory.affectionScore,
-      memory.socialBattery,
-      ctx.hour,
-      ctx.dayOfWeek,
-    ]);
-    const random = seededRandom(seed);
-    const roll = rollTree(routed.layers, ctx, random);
-
-    const treePrompt = buildHumanPrompt({
-      treeName: routed.name,
-      roll,
-      ctx,
-      dna,
-      memory,
-    });
-
-    const systemPrompt = buildNoRobotSystem(m, core, treePrompt);
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return NextResponse.json({
-        reply: core.reply,
-        source: "v11-human-no-api-key",
-        intent: core.intent,
-        world: core.world,
-      });
-    }
-
-    const recentMsgs = Array.isArray(body.recent)
-      ? body.recent
-          .slice(-6)
-          .filter(r => !/(น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|AI|prompt|มโน)/i.test(String(r.text || "")))
-          .map(r => ({
-            role: r.role === "assistant" ? "assistant" : "user",
-            content: String(r.text || "").slice(0, 500),
-          }))
-      : [];
-
-    const lengthLimit = roll.length === "very_short" ? 70
-      : roll.length === "short" ? 130
-      : roll.length === "medium" ? 220
-      : 330;
-
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: "system", content: systemPrompt },
-          ...recentMsgs,
-          { role: "user", content: message },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna }) },
+          ...safeRecent(recent),
+          { role: 'user', content: message },
         ],
-        temperature: 0.88,
-        max_tokens: lengthLimit,
-        presence_penalty: 0.55,
-        frequency_penalty: 0.85,
+        temperature: mode === 'api-deep' ? 0.92 : 0.82,
+        max_tokens: mode === 'api-deep' ? 380 : 190,
+        presence_penalty: 0.45,
+        frequency_penalty: 0.75,
       }),
-      cache: "no-store",
-    });
+      cache: 'no-store',
+    })
 
-    const data = await r.json();
-
-    if (!r.ok) {
-      return NextResponse.json({
-        reply: core.reply,
-        source: "v11-human-openai-fallback",
-        error: data?.error?.message,
-        intent: core.intent,
-        world: core.world,
-      });
+    if (!res.ok) {
+      return json({
+        reply: localReply(message, memory, dna),
+        companionDNA: dna,
+        updatedMemory: { ...memory, companionDNA: dna },
+        source: 'api-error-dna-fallback',
+        status: res.status,
+      })
     }
 
-    const raw = data?.choices?.[0]?.message?.content?.trim() || "";
-    const reply = sanitizeHumanReply(raw, core.reply, core.banned);
+    const data = await res.json()
+    let reply = cleanText(data?.choices?.[0]?.message?.content || '')
+    if (!reply || violates(reply)) reply = localReply(message, memory, dna)
 
-    return NextResponse.json({
+    return json({
       reply,
-      source: "v11-human-core",
-      intent: core.intent,
-      world: core.world,
-      mustAnswer: core.mustAnswer,
-      treeName: routed.name,
-      seed: seed.toString(36),
-      usage: data?.usage,
-    });
-  } catch (err: any) {
-    return NextResponse.json({
-      reply: "เอ้า… สะดุดอีกแล้ว พี่พิมพ์มาใหม่ที น้ำตั้งหลักแป๊บนึง",
-      source: "v11-human-server-error",
-      error: err?.message,
-    });
+      companionDNA: dna,
+      updatedMemory: { ...memory, companionDNA: dna },
+      source: 'openai-dna-lite',
+    })
+  } catch (error) {
+    return json({
+      reply: 'เอ้า… สะดุดอีกแล้ว พี่พิมพ์มาใหม่ที น้ำตั้งหลักแป๊บนึง',
+      error: error instanceof Error ? error.message : 'unknown_error',
+      source: 'route-error',
+    }, 200)
   }
 }
