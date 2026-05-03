@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  ensureCompanionDNALite,
-  type CompanionDNALite,
-} from '../../../lib/companionDNALite'
+import { ensureCompanionDNALite, type CompanionDNALite } from '../../../lib/companionDNALite'
 import { buildDeepHumanLayerLite } from '../../../lib/humanLayerTreeLite'
 import { buildHumanSubBranchLite } from '../../../lib/humanSubBranchLite'
 import { buildHumanMicroBranchLite } from '../../../lib/humanMicroBranchLite'
@@ -10,10 +7,7 @@ import { buildHumanLifeSceneBranchLite } from '../../../lib/humanLifeSceneBranch
 import { buildHumanBodyAutonomyBranchLite } from '../../../lib/humanBodyAutonomyBranchLite'
 import { buildHumanCoreDesireKilesaBranchLite } from '../../../lib/humanCoreDesireKilesaBranchLite'
 import { buildVisibleStatusLite } from '../../../lib/visibleStatusBranchLite'
-import {
-  buildTimeTruthLite,
-  timeTruthToBranchDate,
-} from '../../../lib/timeTruthBranchLite'
+import { buildTimeTruthLite, timeTruthToBranchDate } from '../../../lib/timeTruthBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,10 +35,7 @@ function json(data: unknown, status = 200) {
 }
 
 function recentText(recent: ChatItem[] = []) {
-  return recent
-    .slice(-4)
-    .map(m => `${m.role}:${m.text}`)
-    .join('\n')
+  return recent.slice(-4).map(m => `${m.role}:${m.text}`).join('\n')
 }
 
 export async function POST(req: NextRequest) {
@@ -79,73 +70,13 @@ export async function POST(req: NextRequest) {
     const truthNow = timeTruthToBranchDate(timeTruth)
     const recentString = recentText(recent)
 
-    const layer = buildDeepHumanLayerLite({
-      dna,
-      message: statusMessage,
-      recentText: recentString,
-      adultMode: memory?.adultMode === true,
-      now: truthNow,
-    })
-
-    const sub = buildHumanSubBranchLite({
-      dna,
-      layer,
-      message: statusMessage,
-      recentText: recentString,
-    })
-
-    const micro = buildHumanMicroBranchLite({
-      dna,
-      layer,
-      sub,
-      message: statusMessage,
-      recentText: recentString,
-    })
-
-    const life = buildHumanLifeSceneBranchLite({
-      dna,
-      layer,
-      sub,
-      micro,
-      message: statusMessage,
-      recentText: recentString,
-      now: truthNow,
-    })
-
-    const bodyAuto = buildHumanBodyAutonomyBranchLite({
-      dna,
-      layer,
-      sub,
-      micro,
-      life,
-      message: statusMessage,
-      recentText: recentString,
-      now: truthNow,
-    })
-
-    const core = buildHumanCoreDesireKilesaBranchLite({
-      dna,
-      layer,
-      sub,
-      micro,
-      life,
-      bodyAuto,
-      message: statusMessage,
-      recentText: recentString,
-      now: truthNow,
-    })
-
-    const visibleStatus = buildVisibleStatusLite({
-      dna,
-      layer,
-      sub,
-      micro,
-      life,
-      bodyAuto,
-      core,
-      message: statusMessage,
-      now: truthNow,
-    })
+    const layer = buildDeepHumanLayerLite({ dna, message: statusMessage, recentText: recentString, adultMode: memory?.adultMode === true, now: truthNow })
+    const sub = buildHumanSubBranchLite({ dna, layer, message: statusMessage, recentText: recentString })
+    const micro = buildHumanMicroBranchLite({ dna, layer, sub, message: statusMessage, recentText: recentString })
+    const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message: statusMessage, recentText: recentString, now: truthNow })
+    const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message: statusMessage, recentText: recentString, now: truthNow })
+    const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message: statusMessage, recentText: recentString, now: truthNow })
+    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message: statusMessage, now: truthNow })
 
     return json({
       ok: true,
@@ -153,7 +84,7 @@ export async function POST(req: NextRequest) {
       timeTruth,
       visibleStatus,
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'open-status-v11.15.2b',
+      source: 'open-status-v11.15.3',
     })
   } catch (error) {
     return json({

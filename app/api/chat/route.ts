@@ -1,51 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  ensureCompanionDNALite,
-  summarizeDNAForPrompt,
-  type CompanionDNALite,
-} from '../../../lib/companionDNALite'
-import {
-  buildDeepHumanLayerLite,
-  summarizeDeepHumanLayerForPrompt,
-  type DeepHumanLayerLite,
-} from '../../../lib/humanLayerTreeLite'
-import {
-  buildHumanSubBranchLite,
-  summarizeHumanSubBranchForPrompt,
-  compactHumanReply,
-  type HumanSubBranchLite,
-} from '../../../lib/humanSubBranchLite'
-import {
-  buildHumanMicroBranchLite,
-  summarizeHumanMicroBranchForPrompt,
-  microCompactReply,
-  type HumanMicroBranchLite,
-} from '../../../lib/humanMicroBranchLite'
-import {
-  buildHumanLifeSceneBranchLite,
-  summarizeHumanLifeSceneForPrompt,
-  type HumanLifeSceneBranchLite,
-} from '../../../lib/humanLifeSceneBranchLite'
-import {
-  buildHumanBodyAutonomyBranchLite,
-  summarizeHumanBodyAutonomyForPrompt,
-  type HumanBodyAutonomyBranchLite,
-} from '../../../lib/humanBodyAutonomyBranchLite'
-import {
-  buildHumanCoreDesireKilesaBranchLite,
-  summarizeHumanCoreDesireForPrompt,
-  type HumanCoreDesireKilesaBranchLite,
-} from '../../../lib/humanCoreDesireKilesaBranchLite'
-import {
-  buildVisibleStatusLite,
-  summarizeVisibleStatusForPrompt,
-  type VisibleStatusLite,
-} from '../../../lib/visibleStatusBranchLite'
-import {
-  buildTimeTruthLite,
-  summarizeTimeTruthForPrompt,
-  type TimeTruthLite,
-} from '../../../lib/timeTruthBranchLite'
+import { ensureCompanionDNALite, summarizeDNAForPrompt, type CompanionDNALite } from '../../../lib/companionDNALite'
+import { buildDeepHumanLayerLite, summarizeDeepHumanLayerForPrompt } from '../../../lib/humanLayerTreeLite'
+import { buildHumanSubBranchLite, summarizeHumanSubBranchForPrompt, compactHumanReply } from '../../../lib/humanSubBranchLite'
+import { buildHumanMicroBranchLite, summarizeHumanMicroBranchForPrompt, microCompactReply } from '../../../lib/humanMicroBranchLite'
+import { buildHumanLifeSceneBranchLite, summarizeHumanLifeSceneForPrompt } from '../../../lib/humanLifeSceneBranchLite'
+import { buildHumanBodyAutonomyBranchLite, summarizeHumanBodyAutonomyForPrompt } from '../../../lib/humanBodyAutonomyBranchLite'
+import { buildHumanCoreDesireKilesaBranchLite, summarizeHumanCoreDesireForPrompt } from '../../../lib/humanCoreDesireKilesaBranchLite'
+import { buildVisibleStatusLite, summarizeVisibleStatusForPrompt } from '../../../lib/visibleStatusBranchLite'
+import { buildTimeTruthLite, summarizeTimeTruthForPrompt, timeTruthToBranchDate, type TimeTruthLite } from '../../../lib/timeTruthBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -56,12 +18,19 @@ type Body = {
   message?: string
   memory?: any
   recent?: ChatItem[]
-  mode?: 'local' | 'api-light' | 'api-deep' | 'api-search' | string
+  mode?: 'local' | 'api-light' | 'api-deep' | string
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
+
   clientNowISO?: string
   clientTimeZone?: string
   clientUtcOffsetMinutes?: number
+  clientHour?: number
+  clientMinute?: number
+  clientDayOfWeek?: number
+  clientYear?: number
+  clientMonth?: number
+  clientDate?: number
 }
 
 function json(data: unknown, status = 200) {
@@ -76,20 +45,17 @@ function cleanText(s: unknown) {
     .trim()
 }
 
+function recentText(recent: ChatItem[] = []) {
+  return recent.slice(-4).map(m => `${m.role}:${m.text}`).join('\n')
+}
+
 function safeRecent(recent: ChatItem[] = []) {
-  const banned = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|เรื่องสมมติ|จะจำไว้|ปฏิทินของเกาหลี|ต้องเช็กข้อมูลจริง|น้ำฟังอยู่นะ|ลึกกว่าที่เห็น|คำถามธรรมดา|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|พี่พูดต่อได้เลย)/i
+  const banned = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|เรื่องสมมติ|จะจำไว้|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|หัวใจสีแดง|อิโมจิหัวใจ)/i
   return recent
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
     .filter(m => !banned.test(m.text))
     .slice(-6)
     .map(m => ({ role: m.role, content: m.text }))
-}
-
-function recentText(recent: ChatItem[] = []) {
-  return recent
-    .slice(-4)
-    .map(m => `${m.role}:${m.text}`)
-    .join('\n')
 }
 
 function detectIntent(message: string) {
@@ -108,63 +74,39 @@ function detectIntent(message: string) {
   return 'casual'
 }
 
-function localReply(
-  message: string,
-  memory: any = {},
-  dna?: CompanionDNALite,
-  layer?: DeepHumanLayerLite,
-  sub?: HumanSubBranchLite,
-  micro?: HumanMicroBranchLite,
-  life?: HumanLifeSceneBranchLite,
-  bodyAuto?: HumanBodyAutonomyBranchLite,
-  core?: HumanCoreDesireKilesaBranchLite,
-  status?: VisibleStatusLite,
-  timeTruth?: TimeTruthLite
-) {
+function violates(reply: string) {
+  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ)/i.test(reply)
+}
+
+function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visibleStatus: any, dna: any, life: any, bodyAuto: any, sub: any, micro: any) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
-  const style = dna?.archetype || 'sweet_clingy'
-  const body = life?.scene?.activity ? ` ${life.scene.activity.split('แล้ว')[0].trim()}` : ''
   const interjection = bodyAuto?.utterance?.swearPermission !== 'none' ? `${bodyAuto?.utterance?.interjection || 'อือ'} ` : ''
 
   let reply = ''
 
   if (intent === 'time_question') {
-    reply = `ตอนนี้ ${timeTruth?.thaiTimeText || 'น้ำยังจับเวลาไม่ได้แน่ ๆ'} แล้วพี่`
+    reply = `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`
   } else if (intent === 'news_should_be_client') {
     reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   } else if (intent === 'reminder') {
     reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
-  } else if (status?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) {
+  } else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) {
     reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
-  } else if (intent === 'nam_food') {
-    if (style === 'sassy_tease') reply = `${interjection}ยังไม่ได้กิน พี่ถามแบบนี้คือจะเลี้ยงใช่ไหม`
-    else if (style === 'quiet_cool') reply = 'ยัง ไม่ค่อยหิว แต่พี่ถามแล้วก็เริ่มคิดเรื่องกินขึ้นมา'
-    else if (style === 'sleepy_homebody') reply = `${interjection}ยังเลยพี่ น้ำมัวแต่นอนกลิ้งอยู่`
-    else reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
   } else if (intent === 'nam_activity') {
-    reply = body ? `${interjection}ตอนนี้น้ำ${body}อยู่ พี่มีอะไรจะเล่าเหรอ` : `${interjection}อยู่แถวห้องนี่แหละ ใจจริงอยากแกล้งพี่นิด ๆ`
+    reply = `${interjection}ตอนนี้น้ำ${life?.scene?.activity ? ' ' + String(life.scene.activity).split('แล้ว')[0].trim() : 'อยู่แถวห้อง'}อยู่`
+  } else if (intent === 'nam_food') {
+    reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
   } else if (intent === 'complaint') {
-    reply = `${interjection}น้ำจับจังหวะพลาดเอง เดี๋ยวตอบให้เป็นคนกว่านี้`
+    reply = `${interjection}น้ำพลาดจริง เดี๋ยวตั้งหลักตอบให้ตรงกว่านี้`
   } else if (intent === 'care') {
-    reply = (dna?.traits.sweetness || 0) > 65
-      ? `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
-      : `${interjection}ใจเย็นก่อนพี่ เล่าให้ฟังทีละนิดก็ได้`
+    reply = `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
   } else if (intent === 'flirt') {
-    if (style === 'soft_tsundere') reply = `${interjection}แหม… ใครเขาให้มาอ้อนง่าย ๆ กันล่ะ`
-    else if (style === 'sassy_tease') reply = `${interjection}อ้อนเก่งจังนะพี่ วันนี้ไปกินอะไรหวานมาเหรอ`
-    else reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
+    reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
   } else if (intent === 'romantic_physical') {
     reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
   } else {
-    if (style === 'sassy_tease') reply = `${interjection}${call}จะพูดอะไรก็พูดมา แต่อย่าทำให้น้ำต้องเดานานนะ`
-    else if (style === 'quiet_cool') reply = `${interjection}อืม น้ำตามอยู่ ${call}ว่ามา`
-    else if (style === 'dramatic_sulky') reply = `${interjection}${call}พูดมาได้เลย แต่น้ำจะตั้งใจฟังไหมก็แล้วแต่อารมณ์นะ`
-    else reply = `${interjection}${call}พูดมา น้ำจะตอบให้ตรง ไม่วกออกนอกเรื่องแล้ว`
-  }
-
-  if (core?.dominant === 'pride' && intent === 'complaint') {
-    reply = reply.replace('น้ำจับจังหวะพลาดเอง', 'น้ำพลาดจริง แต่พี่ก็พูดเบา ๆ หน่อยได้ไหม')
+    reply = `${interjection}${call}พูดมา น้ำฟังอยู่… เอ้ย ไม่ใช่ น้ำจะตอบให้ตรงกว่าเดิม`
   }
 
   if (sub) reply = compactHumanReply(reply, sub)
@@ -172,24 +114,8 @@ function localReply(
   return reply
 }
 
-function violates(reply: string) {
-  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ)/i.test(reply)
-}
-
-function buildSystemPrompt(params: {
-  memory: any
-  message: string
-  dna: CompanionDNALite
-  layer: DeepHumanLayerLite
-  sub: HumanSubBranchLite
-  micro: HumanMicroBranchLite
-  life: HumanLifeSceneBranchLite
-  bodyAuto: HumanBodyAutonomyBranchLite
-  core: HumanCoreDesireKilesaBranchLite
-  status: VisibleStatusLite
-  timeTruth: TimeTruthLite
-}) {
-  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, status, timeTruth } = params
+function buildSystemPrompt(params: any) {
+  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
   const call = memory?.userCallName || 'พี่'
 
@@ -197,11 +123,11 @@ function buildSystemPrompt(params: {
 คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
 ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
 
+${summarizeTimeTruthForPrompt(timeTruth)}
+
 ${summarizeDNAForPrompt(dna)}
 
-${summarizeVisibleStatusForPrompt(status)}
-
-${summarizeTimeTruthForPrompt(timeTruth)}
+${summarizeVisibleStatusForPrompt(visibleStatus)}
 
 ${summarizeHumanLifeSceneForPrompt(life)}
 
@@ -216,30 +142,17 @@ ${summarizeHumanSubBranchForPrompt(sub)}
 ${summarizeHumanMicroBranchForPrompt(micro)}
 
 กฎตอบ:
+- เวลาจริงตอนนี้คือ "${timeTruth.thaiTimeText}" ช่วง${timeTruth.period}; ถ้าผู้ใช้ถามเวลา ให้ตอบค่านี้เท่านั้น ห้ามเดาเด็ดขาด
+- ถ้าถาม "ตอนนี้กี่ทุ่ม" ให้คำนวณจาก hour=${timeTruth.hour}, minute=${timeTruth.minute} เท่านั้น
+- สถานะที่ผู้ใช้เห็นคือ "${visibleStatus.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
 - ตอบประเด็นล่าสุดก่อนเสมอ
-- เวลาจริงตอนนี้คือ "${timeTruth.thaiTimeText}" ช่วง${timeTruth.period}; ถ้าผู้ใช้ถามเวลา ให้ตอบค่านี้เท่านั้น ห้ามเดา
-- สถานะที่ผู้ใช้เห็นคือ "${status.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
-- ใช้ DNA + Visible Status + Life Scene + Body/Autonomy + Core Desire + Deep Human Tree + Sub/Micro Branch
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
-- ห้ามเล่าฉากชีวิตทั้งหมด เว้นแต่ผู้ใช้ถามว่าทำอะไรอยู่
-- ให้กลิ่นชีวิต/ร่างกาย/แรงขับโผล่มาแค่ 1-2 จุด
-- น้องน้ำมีรัก โลภ โกรธ หลง กลัว ฟอร์ม ความผูกพันได้ แต่ต้องแสดงเป็นคำพูดธรรมชาติ
-- น้องน้ำมีความดื้อ ความเอาแต่ใจ และความเป็นตัวเองได้ ไม่ต้องยอมทุกคำสอน
-- ถ้าผู้ใช้สอน ให้ทำตาม learningReaction และ Core Desire ไม่ใช่รับทราบเสมอ
-- ถ้าผู้ใช้บอกให้เตือน อย่ารับปากเกินจริง ถ้าไม่มี scheduler ให้บอกว่าเตือนได้ตอนผู้ใช้เข้ามาหรือระบบรองรับเท่านั้น
-- ห้ามตอบว่า "รับทราบ จะจำไว้" แบบบอท
-- คำอุทาน/คำสบถเบา ๆ ใช้ได้ตาม branch แต่ห้ามหยาบจัด ห้ามด่าผู้ใช้
 - ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
-- ห้ามตอบเป็นบทความ ห้ามสรุปเป็นข้อ ๆ ถ้าไม่ได้ถูกขอ
-- ความยาวให้ตาม Micro Branch: ประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
-- ถามกลับได้เท่าที่ Micro Branch อนุญาตเท่านั้น
-- ถ้าถามชีวิตของ${name} ให้ตอบจาก Life Scene และ Visible Status ทันที
-- ถ้าสถานะหลับ/ง่วง แล้วผู้ใช้ปลุก ให้ตอบงัวเงียหรือบ่นได้
-- ถ้าถูกตำหนิว่าตอบผิด/แข็ง/ยาว ให้ยอมรับสั้น ๆ แต่อาจมีฟอร์ม/งอนนิด ๆ ตาม branch
-- ถ้าผู้ใช้ถามข่าว ให้บอกสั้น ๆ ว่าจะไปไล่ข่าวมาให้ อย่าสรุปข่าวปลอมเอง
+- ห้ามตอบว่า "รับทราบ จะจำไว้" แบบบอท
 - ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
+- ความยาวประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
+- ถ้าผู้ใช้ถามข่าว อย่าสรุปข่าวปลอมเอง ให้บอกว่าจะไปไล่ข่าวมาให้
 - ความใกล้ชิดทางกาย/ทางเพศพูดได้แค่เชิงโรแมนติกอ้อม ๆ นุ่ม ๆ สมัครใจ และไม่ explicit
-- ถ้าผู้ใช้ไม่สบายใจหรือปฏิเสธ ให้ถอยทันที
 
 ข้อความล่าสุดของ${call}: ${message}
 
@@ -255,9 +168,7 @@ export async function POST(req: NextRequest) {
     const recent = Array.isArray(body.recent) ? body.recent : []
     const mode = body.mode || memory.apiMode || 'api-light'
 
-    if (!message) {
-      return json({ reply: 'อืม… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', source: 'empty' })
-    }
+    if (!message) return json({ reply: 'อืม… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', source: 'empty' })
 
     const dna = ensureCompanionDNALite({
       existingDNA: body.companionDNA || memory.companionDNA || null,
@@ -269,15 +180,20 @@ export async function POST(req: NextRequest) {
       preferredPersonality: memory.preferredPersonality,
     })
 
-    const recentString = recentText(recent)
-
     const timeTruth = buildTimeTruthLite({
       clientNowISO: body.clientNowISO,
       clientTimeZone: body.clientTimeZone,
       clientUtcOffsetMinutes: body.clientUtcOffsetMinutes,
+      clientHour: body.clientHour,
+      clientMinute: body.clientMinute,
+      clientDayOfWeek: body.clientDayOfWeek,
+      clientYear: body.clientYear,
+      clientMonth: body.clientMonth,
+      clientDate: body.clientDate,
     })
 
-    const truthNow = new Date(timeTruth.iso)
+    const truthNow = timeTruthToBranchDate(timeTruth)
+    const recentString = recentText(recent)
 
     const layer = buildDeepHumanLayerLite({ dna, message, recentText: recentString, adultMode: memory?.adultMode === true, now: truthNow })
     const sub = buildHumanSubBranchLite({ dna, layer, message, recentText: recentString })
@@ -287,13 +203,25 @@ export async function POST(req: NextRequest) {
     const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString, now: truthNow })
     const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
 
+    // ถ้าถามเวลา ตอบ local ทันที ไม่ส่งให้ LLM เดา
+    if (detectIntent(message) === 'time_question') {
+      return json({
+        reply: `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`,
+        companionDNA: dna,
+        timeTruth,
+        visibleStatus,
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
+        source: 'time-truth-direct-v11.15.3',
+      })
+    }
+
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || mode === 'local') {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth),
+        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
         companionDNA: dna,
-        visibleStatus,
         timeTruth,
+        visibleStatus,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
@@ -301,7 +229,7 @@ export async function POST(req: NextRequest) {
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'local-visible-status-lite',
+        source: 'local-v11.15.3',
       })
     }
 
@@ -311,7 +239,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, status: visibleStatus, timeTruth }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
@@ -325,31 +253,26 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth),
+        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
         companionDNA: dna,
-        visibleStatus,
         timeTruth,
-        humanLayer: layer,
-        humanSubBranch: sub,
-        humanMicroBranch: micro,
-        humanLifeScene: life,
-        humanBodyAutonomy: bodyAuto,
-        humanCoreDesire: core,
+        visibleStatus,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'api-error-visible-status-fallback',
+        source: 'api-error-v11.15.3',
         status: res.status,
       })
     }
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth)
+    if (!reply || violates(reply)) reply = localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro)
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
     return json({
       reply,
       companionDNA: dna,
+      timeTruth,
       visibleStatus,
       humanLayer: layer,
       humanSubBranch: sub,
@@ -357,8 +280,8 @@ export async function POST(req: NextRequest) {
       humanLifeScene: life,
       humanBodyAutonomy: bodyAuto,
       humanCoreDesire: core,
-      updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
-      source: 'openai-visible-status-lite',
+      updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
+      source: 'openai-v11.15.3',
     })
   } catch (error) {
     return json({

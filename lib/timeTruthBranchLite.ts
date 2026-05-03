@@ -1,8 +1,10 @@
 /*
- * timeTruthBranchLite.ts — Nong Nam v11.15.2b Time Truth Lock
- * -----------------------------------------------------------
- * Export ทั้ง buildTimeTruthLite และ timeTruthToBranchDate ให้ครบ
- * แก้ build fail: no exported member 'timeTruthToBranchDate'
+ * timeTruthBranchLite.ts — Nong Nam v11.15.3 Absolute Time Fix
+ * ------------------------------------------------------------
+ * แก้เวลาผิดแบบเด็ดขาด:
+ * - ใช้ local parts จากเครื่องผู้ใช้ก่อนเสมอ: clientHour/clientMinute/clientDayOfWeek
+ * - ห้ามใช้ server timezone มาตอบเวลา ถ้ามี client local parts
+ * - ใช้ timeTruthToBranchDate() ส่งเวลาเดียวกันเข้า branch ทุกตัว
  */
 
 export type TimeTruthInput = {
@@ -19,7 +21,7 @@ export type TimeTruthInput = {
 }
 
 export type TimeTruthLite = {
-  version: 'v11.15.2b-time-truth-lock'
+  version: 'v11.15.3-absolute-time-fix'
   source: 'client_local_parts' | 'client_iso' | 'server_fallback'
   iso: string
   timeZone: string
@@ -115,7 +117,7 @@ export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
   const thaiTimeText = thaiClockText(hour, minute)
 
   return {
-    version: 'v11.15.2b-time-truth-lock',
+    version: 'v11.15.3-absolute-time-fix',
     source,
     iso,
     timeZone,
@@ -128,8 +130,7 @@ export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
     date,
     period,
     thaiTimeText,
-    promptHint:
-      `เวลาจริงตอนนี้คือ ${thaiTimeText} ช่วง${period}. source=${source}. ห้ามเดาเวลาเอง ถ้าผู้ใช้ถามเวลาให้ตอบตามค่านี้เท่านั้น`,
+    promptHint: `เวลาจริงตอนนี้คือ ${thaiTimeText} ช่วง${period}. source=${source}. ห้ามเดาเวลาเอง`,
   }
 }
 
@@ -142,9 +143,8 @@ export function timeTruthToBranchDate(time: TimeTruthLite): Date {
 
 export function summarizeTimeTruthForPrompt(time: TimeTruthLite) {
   return `
-[Time Truth v11.15.2b — เวลาจริง ห้ามเดา]
+[Time Truth v11.15.3 — เวลาจริง ห้ามเดา]
 source=${time.source}
-iso=${time.iso}
 timeZone=${time.timeZone}
 utcOffsetMinutes=${time.utcOffsetMinutes}
 hour=${time.hour}
@@ -155,6 +155,6 @@ thaiTimeText=${time.thaiTimeText}
 คำสั่ง:
 - ถ้าผู้ใช้ถามว่า "ตอนนี้กี่โมง/กี่ทุ่ม/เวลาเท่าไหร่" ให้ตอบตาม thaiTimeText เท่านั้น
 - ห้ามมโนเวลา ห้ามเดาเวลา ห้ามใช้เวลาจากอารมณ์
-- การสุ่มกิ่งใช้อิงเวลาได้ แต่คำตอบเรื่องเวลาต้องใช้ Time Truth เท่านั้น
+- ถ้า source=client_local_parts แปลว่าเป็นเวลาจากเครื่องผู้ใช้ ให้เชื่อค่านี้เป็นอันดับ 1
 `.trim()
 }
