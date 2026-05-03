@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   analyzeMessage,
+  buildSystemPrompt,
   cleanAssistantText,
   defaultEmotionalState,
   ensureCompanionDNA,
-  fallbackHumanReply,
   looksRobotic,
   updateEmotionalMemory,
   updateEmotionalState,
@@ -12,12 +12,13 @@ import {
   type ChatItem,
 } from '../../lib/companionDNA'
 import {
-  looksLikeImmersionBreak,
-  makeHumanFallback,
-  runHumanSignatureTree,
-  updateMemorySilently,
+  cleanHumanReply,
+  fallbackFromLeaf,
+  replyBreaksImmersion,
+  runHumanWheel,
   type ClientTime,
   type HumanGraphState,
+  type LifeTimeline,
 } from '../../lib/humanWheel'
 
 export const runtime = 'nodejs'
@@ -25,13 +26,14 @@ export const dynamic = 'force-dynamic'
 
 type Body = {
   message?: string
-  memory?: AppMemoryInput & Record<string, any>
+  memory?: AppMemoryInput
   recent?: ChatItem[]
   mode?: 'local' | 'api-light' | 'api-deep' | 'api-search' | string
-  eventHint?: string
-  humanGraphState?: Partial<HumanGraphState>
-  previousLastSeenAt?: string
   clientTime?: ClientTime
+  humanGraphState?: HumanGraphState | null
+  lifeTimeline?: LifeTimeline | null
+  previousLastSeenAt?: string | null
+  eventHint?: string | null
 }
 
 function json(data: unknown, status = 200) {
@@ -41,7 +43,7 @@ function json(data: unknown, status = 200) {
 function recentToOpenAI(recent: ChatItem[] = []) {
   return recent
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
-    .slice(-8)
+    .slice(-10)
     .map(m => ({ role: m.role, content: m.text }))
 }
 
@@ -51,70 +53,105 @@ function modelFromMode(mode?: string) {
   return 'gpt-4o-mini'
 }
 
-function temperatureFromWheel(mode?: string, responseMode?: string) {
-  if (responseMode === 'factual_calm') return 0.45
-  if (mode === 'api-deep') return 0.86
-  if (mode === 'api-search') return 0.55
-  return 0.82
+function temperatureFromMode(mode?: string) {
+  if (mode === 'api-deep') return 0.92
+  if (mode === 'api-search') return 0.65
+  return 0.88
+}
+
+function buildExternalFactReply(message: string, wheel: ReturnType<typeof runHumanWheel>) {
+  const m = message.toLowerCase()
+  if (/อากาศ|ฝน|หนาว|ร้อน/.test(m)) {
+    return 'พี่อยู่แถวไหนอะ เดี๋ยวน้ำเช็กให้ตรงพื้นที่เลย ไม่อยากเดาแล้วพี่แต่งตัวผิด'
+  }
+  if (/วันนี้วันที่เท่าไหร่|วันนี้วันอะไร/.test(m)) {
+    const now = wheel.updatedLastSeenAt ? new Date(wheel.updatedLastSeenAt) : new Date()
+    if (!Number.isNaN(now.getTime())) {
+      const day = now.toLocaleDateString('th-TH', { dateStyle: 'full', timeZone: 'Asia/Seoul' })
+      return `วันนี้ ${day} นะพี่`
+    }
+  }
+  if (/วันหยุด|ปฏิทิน|ราชการ|เกาหลี.*หยุด/.test(m)) {
+    return 'อันนี้เป็นข้อมูลจริงนะพี่ น้ำขอเช็กปฏิทินให้ชัวร์ก่อน ไม่อยากตอบมั่วแล้วพี่เอาไปใช้ผิด'
+  }
+  if (/ข่าว/.test(m)) {
+    return 'ข่าวเป็นข้อมูลจริงนะพี่ เดี๋ยวน้ำต้องดึงจากแหล่งข่าวก่อน จะได้ไม่เล่าเพี้ยน'
+  }
+  return ''
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as Body
     const message = String(body.message || '').trim()
-    const appMemory = (body.memory || {}) as AppMemoryInput & Record<string, any>
+    const appMemory = (body.memory || {}) as AppMemoryInput
     const recent = Array.isArray(body.recent) ? body.recent : []
     const mode = body.mode || 'api-light'
 
     if (!message) {
-      return json({ reply: 'อือ… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', meta: { ok: false } }, 200)
+      return json({ reply: 'อืม… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', meta: { ok: false } }, 200)
     }
 
     const dna = ensureCompanionDNA(appMemory)
-
-    // Keep the previous engine alive for compatibility with page.tsx state.
     const baseState = appMemory.emotionalState || defaultEmotionalState(dna, appMemory)
-    const event = analyzeMessage(message)
-    const nextState = updateEmotionalState(baseState, event, dna, message)
-    const nextEmotionalMemory = updateEmotionalMemory(appMemory.emotionalMemory || {}, event, message)
+    const oldEvent = analyzeMessage(message)
+    const nextState = updateEmotionalState(baseState, oldEvent, dna, message)
+    const nextEmotionalMemory = updateEmotionalMemory(appMemory.emotionalMemory || {}, oldEvent, message)
 
-    const wheel = runHumanSignatureTree({
-      userMessage: message,
-      eventHint: body.eventHint,
+    const wheel = runHumanWheel({
+      message,
       dna,
-      memory: { ...appMemory, emotionalMemory: nextEmotionalMemory },
-      humanGraphState: body.humanGraphState || appMemory.humanGraphState,
-      previousLastSeenAt: body.previousLastSeenAt || appMemory.lastSeenAt,
-      clientTime: body.clientTime,
+      appMemory,
       recent,
+      clientTime: body.clientTime,
+      humanGraphState: body.humanGraphState,
+      lifeTimeline: body.lifeTimeline,
+      previousLastSeenAt: body.previousLastSeenAt,
+      eventHint: body.eventHint,
     })
 
-    const silentMemory = updateMemorySilently({ ...appMemory, emotionalMemory: nextEmotionalMemory }, wheel, message)
+    const baseSystemPrompt = buildSystemPrompt({
+      dna,
+      state: nextState,
+      emotionalMemory: nextEmotionalMemory,
+      appMemory,
+      event: oldEvent,
+    })
+
+    const systemPrompt = `${baseSystemPrompt}
+
+${wheel.promptAddon}
+
+[FINAL GUARD]
+The Human Signature Tree is the deciding layer. If older instructions conflict, follow WORLD ROUTER and HUMAN SIGNATURE TREE.
+Do not mention AI/system/memory/prompt/fiction/simulation.
+If this is about Nong Nam's own life, answer as lived experience.
+If this is real external data, be careful and natural.
+`
 
     const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
-      const reply = makeHumanFallback(message, wheel)
+    const forcedFact = wheel.worldMode === 'external_fact' ? buildExternalFactReply(message, wheel) : ''
+
+    if (!apiKey || mode === 'local') {
+      const reply = forcedFact || fallbackFromLeaf({ message, result: wheel, appMemory })
       return json({
         reply,
         companionDNA: dna,
         emotionalState: nextState,
         emotionalMemory: nextEmotionalMemory,
-        humanGraphState: wheel.updatedHumanGraphState,
         updatedHumanGraphState: wheel.updatedHumanGraphState,
-        updatedMemory: silentMemory,
-        event,
+        updatedLifeTimeline: wheel.updatedLifeTimeline,
+        updatedLastSeenAt: wheel.updatedLastSeenAt,
         eventTags: wheel.eventTags,
         worldMode: wheel.worldMode,
-        responseModeUsed: wheel.responseWheel.responseMode,
-        bodyStateUsed: wheel.bodyState.label,
-        desireUsed: wheel.desireState.primaryDesire,
+        responseModeUsed: wheel.responseModeUsed,
+        bodyStateUsed: wheel.bodyStateUsed,
+        desireUsed: wheel.desireUsed,
         lifeStatusText: wheel.lifeStatusText,
-        updatedLastSeenAt: wheel.updatedLastSeenAt,
-        source: 'local-human-signature-no-key',
+        source: apiKey ? 'local-human-tree' : 'local-fallback-no-key',
       })
     }
 
-    const systemPrompt = wheel.promptContext
     const openAIMessages = [
       { role: 'system', content: systemPrompt },
       ...recentToOpenAI(recent),
@@ -130,28 +167,44 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: modelFromMode(mode),
         messages: openAIMessages,
-        temperature: temperatureFromWheel(mode, wheel.responseWheel.responseMode),
-        max_tokens: wheel.responseWheel.maxLengthHint === 'very_short' ? 90 : wheel.responseWheel.maxLengthHint === 'short' ? 140 : mode === 'api-deep' ? 420 : 240,
-        presence_penalty: 0.42,
+        temperature: temperatureFromMode(mode),
+        max_tokens: mode === 'api-deep' ? 420 : 260,
+        presence_penalty: 0.45,
         frequency_penalty: 0.55,
       }),
       cache: 'no-store',
     })
 
-    let reply = ''
-    if (res.ok) {
-      const data = await res.json()
-      reply = cleanAssistantText(data?.choices?.[0]?.message?.content || '')
+    if (!res.ok) {
+      const fallback = forcedFact || fallbackFromLeaf({ message, result: wheel, appMemory })
+      return json({
+        reply: fallback,
+        companionDNA: dna,
+        emotionalState: nextState,
+        emotionalMemory: nextEmotionalMemory,
+        updatedHumanGraphState: wheel.updatedHumanGraphState,
+        updatedLifeTimeline: wheel.updatedLifeTimeline,
+        updatedLastSeenAt: wheel.updatedLastSeenAt,
+        eventTags: wheel.eventTags,
+        worldMode: wheel.worldMode,
+        responseModeUsed: wheel.responseModeUsed,
+        bodyStateUsed: wheel.bodyStateUsed,
+        desireUsed: wheel.desireUsed,
+        lifeStatusText: wheel.lifeStatusText,
+        source: 'local-fallback-api-error',
+      })
     }
 
-    if (!reply || looksRobotic(reply) || looksLikeImmersionBreak(reply, wheel)) {
-      reply = makeHumanFallback(message, wheel)
+    const data = await res.json()
+    let reply = cleanHumanReply(cleanAssistantText(data?.choices?.[0]?.message?.content || ''))
+
+    if (forcedFact) {
+      // For real external fact questions, prefer deterministic safe response until a real tool/API is connected.
+      reply = forcedFact
     }
 
-    // One more safety pass. Do not let immersion-breaking words escape.
-    if (looksLikeImmersionBreak(reply, wheel)) {
-      const oldFallback = fallbackHumanReply({ message, dna, state: nextState, event, appMemory })
-      reply = looksLikeImmersionBreak(oldFallback, wheel) ? makeHumanFallback(message, wheel) : oldFallback
+    if (!reply || looksRobotic(reply) || replyBreaksImmersion(reply, wheel)) {
+      reply = forcedFact || fallbackFromLeaf({ message, result: wheel, appMemory })
     }
 
     return json({
@@ -159,24 +212,21 @@ export async function POST(req: NextRequest) {
       companionDNA: dna,
       emotionalState: nextState,
       emotionalMemory: nextEmotionalMemory,
-      humanGraphState: wheel.updatedHumanGraphState,
       updatedHumanGraphState: wheel.updatedHumanGraphState,
-      updatedMemory: silentMemory,
-      event,
+      updatedLifeTimeline: wheel.updatedLifeTimeline,
+      updatedLastSeenAt: wheel.updatedLastSeenAt,
       eventTags: wheel.eventTags,
       worldMode: wheel.worldMode,
-      responseModeUsed: wheel.responseWheel.responseMode,
-      bodyStateUsed: wheel.bodyState.label,
-      desireUsed: wheel.desireState.primaryDesire,
+      responseModeUsed: wheel.responseModeUsed,
+      bodyStateUsed: wheel.bodyStateUsed,
+      desireUsed: wheel.desireUsed,
       lifeStatusText: wheel.lifeStatusText,
-      updatedLastSeenAt: wheel.updatedLastSeenAt,
-      source: 'openai-human-signature-tree-v7-4',
+      source: 'openai-human-signature-tree-v7.6',
     })
   } catch (error) {
     return json({
-      reply: 'เอ้า… สะดุดอีกแล้วพี่แมน แป๊บนะ พิมพ์มาใหม่อีกรอบได้ไหม',
+      reply: 'เอ้า… สะดุดอีกแล้ว พี่พิมพ์มาใหม่ที น้ำตั้งหลักแป๊บนึง',
       error: error instanceof Error ? error.message : 'unknown_error',
-      source: 'route-catch',
     }, 200)
   }
 }
