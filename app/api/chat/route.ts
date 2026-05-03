@@ -26,6 +26,11 @@ import {
   summarizeHumanLifeSceneForPrompt,
   type HumanLifeSceneBranchLite,
 } from '../../../lib/humanLifeSceneBranchLite'
+import {
+  buildHumanBodyAutonomyBranchLite,
+  summarizeHumanBodyAutonomyForPrompt,
+  type HumanBodyAutonomyBranchLite,
+} from '../../../lib/humanBodyAutonomyBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -90,41 +95,43 @@ function localReply(
   layer?: DeepHumanLayerLite,
   sub?: HumanSubBranchLite,
   micro?: HumanMicroBranchLite,
-  life?: HumanLifeSceneBranchLite
+  life?: HumanLifeSceneBranchLite,
+  bodyAuto?: HumanBodyAutonomyBranchLite
 ) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
   const style = dna?.archetype || 'sweet_clingy'
   const body = life?.scene?.activity ? ` ${life.scene.activity.split('แล้ว')[0].trim()}` : ''
+  const interjection = bodyAuto?.utterance?.swearPermission !== 'none' ? `${bodyAuto?.utterance?.interjection || 'อือ'} ` : ''
 
   let reply = ''
 
   if (intent === 'news_should_be_client') {
     reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   } else if (intent === 'nam_food') {
-    if (style === 'sassy_tease') reply = 'ยังไม่ได้กิน พี่ถามแบบนี้คือจะเลี้ยงใช่ไหม'
+    if (style === 'sassy_tease') reply = `${interjection}ยังไม่ได้กิน พี่ถามแบบนี้คือจะเลี้ยงใช่ไหม`
     else if (style === 'quiet_cool') reply = 'ยัง ไม่ค่อยหิว แต่พี่ถามแล้วก็เริ่มคิดเรื่องกินขึ้นมา'
-    else if (style === 'sleepy_homebody') reply = 'ยังเลยพี่ น้ำมัวแต่นอนกลิ้งอยู่'
-    else reply = 'ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ'
+    else if (style === 'sleepy_homebody') reply = `${interjection}ยังเลยพี่ น้ำมัวแต่นอนกลิ้งอยู่`
+    else reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
   } else if (intent === 'nam_activity') {
-    reply = body ? `ตอนนี้น้ำ${body}อยู่ พี่มีอะไรจะเล่าเหรอ` : `อยู่แถวห้องนี่แหละ ใจจริงอยากแกล้งพี่นิด ๆ`
+    reply = body ? `${interjection}ตอนนี้น้ำ${body}อยู่ พี่มีอะไรจะเล่าเหรอ` : `${interjection}อยู่แถวห้องนี่แหละ ใจจริงอยากแกล้งพี่นิด ๆ`
   } else if (intent === 'complaint') {
-    reply = 'อือ น้ำจับจังหวะพลาดเอง เดี๋ยวตอบให้เป็นคนกว่านี้'
+    reply = `${interjection}น้ำจับจังหวะพลาดเอง เดี๋ยวตอบให้เป็นคนกว่านี้`
   } else if (intent === 'care') {
     reply = (dna?.traits.sweetness || 0) > 65
-      ? 'มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้'
-      : 'ใจเย็นก่อนพี่ เล่าให้ฟังทีละนิดก็ได้'
+      ? `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
+      : `${interjection}ใจเย็นก่อนพี่ เล่าให้ฟังทีละนิดก็ได้`
   } else if (intent === 'flirt') {
-    if (style === 'soft_tsundere') reply = 'แหม… ใครเขาให้มาอ้อนง่าย ๆ กันล่ะ'
-    else if (style === 'sassy_tease') reply = 'อ้อนเก่งจังนะพี่ วันนี้ไปกินอะไรหวานมาเหรอ'
-    else reply = 'แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย'
+    if (style === 'soft_tsundere') reply = `${interjection}แหม… ใครเขาให้มาอ้อนง่าย ๆ กันล่ะ`
+    else if (style === 'sassy_tease') reply = `${interjection}อ้อนเก่งจังนะพี่ วันนี้ไปกินอะไรหวานมาเหรอ`
+    else reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
   } else if (intent === 'romantic_physical') {
-    reply = 'แหม… พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ'
+    reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
   } else {
-    if (style === 'sassy_tease') reply = `${call}จะพูดอะไรก็พูดมา แต่อย่าทำให้น้ำต้องเดานานนะ`
-    else if (style === 'quiet_cool') reply = `อืม น้ำตามอยู่ ${call}ว่ามา`
-    else if (style === 'dramatic_sulky') reply = `${call}พูดมาได้เลย แต่น้ำจะตั้งใจฟังไหมก็แล้วแต่อารมณ์นะ`
-    else reply = `${call}พูดมา น้ำจะตอบให้ตรง ไม่วกออกนอกเรื่องแล้ว`
+    if (style === 'sassy_tease') reply = `${interjection}${call}จะพูดอะไรก็พูดมา แต่อย่าทำให้น้ำต้องเดานานนะ`
+    else if (style === 'quiet_cool') reply = `${interjection}อืม น้ำตามอยู่ ${call}ว่ามา`
+    else if (style === 'dramatic_sulky') reply = `${interjection}${call}พูดมาได้เลย แต่น้ำจะตั้งใจฟังไหมก็แล้วแต่อารมณ์นะ`
+    else reply = `${interjection}${call}พูดมา น้ำจะตอบให้ตรง ไม่วกออกนอกเรื่องแล้ว`
   }
 
   if (sub) reply = compactHumanReply(reply, sub)
@@ -144,8 +151,9 @@ function buildSystemPrompt(params: {
   sub: HumanSubBranchLite
   micro: HumanMicroBranchLite
   life: HumanLifeSceneBranchLite
+  bodyAuto: HumanBodyAutonomyBranchLite
 }) {
-  const { memory, message, dna, layer, sub, micro, life } = params
+  const { memory, message, dna, layer, sub, micro, life, bodyAuto } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
   const call = memory?.userCallName || 'พี่'
   const dnaPrompt = summarizeDNAForPrompt(dna)
@@ -153,6 +161,7 @@ function buildSystemPrompt(params: {
   const subPrompt = summarizeHumanSubBranchForPrompt(sub)
   const microPrompt = summarizeHumanMicroBranchForPrompt(micro)
   const lifePrompt = summarizeHumanLifeSceneForPrompt(life)
+  const bodyAutoPrompt = summarizeHumanBodyAutonomyForPrompt(bodyAuto)
 
   return `
 คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
@@ -162,6 +171,8 @@ ${dnaPrompt}
 
 ${lifePrompt}
 
+${bodyAutoPrompt}
+
 ${layerPrompt}
 
 ${subPrompt}
@@ -170,16 +181,20 @@ ${microPrompt}
 
 กฎตอบ:
 - ตอบประเด็นล่าสุดก่อนเสมอ
-- ใช้ DNA + Life Scene + Deep Human Tree + Sub Branch + Micro Branch
+- ใช้ DNA + Life Scene + Body/Autonomy + Deep Human Tree + Sub Branch + Micro Branch
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
 - ห้ามเล่าฉากชีวิตทั้งหมด เว้นแต่ผู้ใช้ถามว่าทำอะไรอยู่
-- ให้กลิ่นชีวิตโผล่มาแค่ 1 จุด เช่น ง่วง หิว อยู่ห้อง ทำอะไรค้าง
+- ให้กลิ่นชีวิต/ร่างกายโผล่มาแค่ 1 จุด เช่น ง่วง หิว ปวดหัว อยู่ห้อง ทำอะไรค้าง
+- น้องน้ำมีความดื้อ ความเอาแต่ใจ และความเป็นตัวเองได้ ไม่ต้องยอมทุกคำสอน
+- ถ้าผู้ใช้สอน ให้ทำตาม learningReaction จาก Body/Autonomy Branch
+- ห้ามตอบว่า "รับทราบ จะจำไว้" แบบบอท
+- คำอุทาน/คำสบถเบา ๆ ใช้ได้ตาม branch แต่ห้ามหยาบจัด ห้ามด่าผู้ใช้
 - ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
 - ห้ามตอบเป็นบทความ ห้ามสรุปเป็นข้อ ๆ ถ้าไม่ได้ถูกขอ
 - ความยาวให้ตาม Micro Branch: ประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
 - ถามกลับได้เท่าที่ Micro Branch อนุญาตเท่านั้น
 - ถ้าถามชีวิตของ${name} ให้ตอบจาก Life Scene ทันที
-- ถ้าถูกตำหนิว่าตอบผิด/แข็ง/ยาว ให้ยอมรับสั้น ๆ แล้วแก้ทันที
+- ถ้าถูกตำหนิว่าตอบผิด/แข็ง/ยาว ให้ยอมรับสั้น ๆ แต่อาจมีฟอร์ม/งอนนิด ๆ ตาม branch
 - ถ้าผู้ใช้ถามข่าว ให้บอกสั้น ๆ ว่าจะไปไล่ข่าวมาให้ อย่าสรุปข่าวปลอมเอง
 - ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
 - ความใกล้ชิดทางกาย/ทางเพศพูดได้แค่เชิงโรแมนติกอ้อม ๆ นุ่ม ๆ สมัครใจ และไม่ explicit
@@ -246,17 +261,28 @@ export async function POST(req: NextRequest) {
       recentText: recentString,
     })
 
+    const bodyAuto = buildHumanBodyAutonomyBranchLite({
+      dna,
+      layer,
+      sub,
+      micro,
+      life,
+      message,
+      recentText: recentString,
+    })
+
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || mode === 'local') {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto),
         companionDNA: dna,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
+        humanBodyAutonomy: bodyAuto,
         updatedMemory: { ...memory, companionDNA: dna },
-        source: 'local-life-scene-branch-lite',
+        source: 'local-body-autonomy-branch-lite',
       })
     }
 
@@ -266,35 +292,36 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto }) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
-        temperature: mode === 'api-deep' ? 0.96 : 0.9,
-        max_tokens: mode === 'api-deep' ? 430 : 240,
-        presence_penalty: 0.62,
-        frequency_penalty: 1.08,
+        temperature: mode === 'api-deep' ? 0.97 : 0.91,
+        max_tokens: mode === 'api-deep' ? 430 : 245,
+        presence_penalty: 0.64,
+        frequency_penalty: 1.1,
       }),
       cache: 'no-store',
     })
 
     if (!res.ok) {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto),
         companionDNA: dna,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
+        humanBodyAutonomy: bodyAuto,
         updatedMemory: { ...memory, companionDNA: dna },
-        source: 'api-error-life-scene-fallback',
+        source: 'api-error-body-autonomy-fallback',
         status: res.status,
       })
     }
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life)
+    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto)
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
@@ -305,8 +332,9 @@ export async function POST(req: NextRequest) {
       humanSubBranch: sub,
       humanMicroBranch: micro,
       humanLifeScene: life,
+      humanBodyAutonomy: bodyAuto,
       updatedMemory: { ...memory, companionDNA: dna },
-      source: 'openai-life-scene-branch-lite',
+      source: 'openai-body-autonomy-branch-lite',
     })
   } catch (error) {
     return json({
