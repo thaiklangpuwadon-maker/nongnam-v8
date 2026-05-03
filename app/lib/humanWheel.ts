@@ -317,15 +317,19 @@ function pick<T>(arr: T[], r: () => number): T {
   return arr[Math.floor(r() * arr.length)]
 }
 
-function weightedPick<T extends string>(items: Array<[T, number]>, r: () => number): T {
+function weightedPick<T>(items: Array<[T, number]>, r: () => number): T {
   const filtered = items.filter(([, w]) => w > 0)
-  const total = filtered.reduce((s, [, w]) => s + w, 0)
-  let x = r() * total
-  for (const [item, weight] of filtered) {
-    x -= weight
+  const source = filtered.length > 0 ? filtered : items
+  if (source.length === 0) {
+    throw new Error('weightedPick requires at least one item')
+  }
+  const total = source.reduce((s, [, w]) => s + Math.max(0, w), 0)
+  let x = r() * (total || source.length)
+  for (const [item, weight] of source) {
+    x -= total ? Math.max(0, weight) : 1
     if (x <= 0) return item
   }
-  return filtered[filtered.length - 1]?.[0] || items[0][0]
+  return source[source.length - 1][0]
 }
 
 function applyEffects(state: HumanGraphState, effects: Partial<HumanGraphState>): HumanGraphState {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  analyzeMessage,
   buildSystemPrompt,
   cleanAssistantText,
   defaultEmotionalState,
@@ -107,16 +108,7 @@ export async function POST(req: NextRequest) {
 
     const dna = ensureCompanionDNA(appMemory)
     const baseState: EmotionalState = appMemory.emotionalState || defaultEmotionalState(dna, appMemory)
-    const legacyEvent = (() => {
-      try {
-        // Keep the old emotional core alive for backward compatibility.
-        // buildSystemPrompt still benefits from this event analysis.
-        const mod = require('../../lib/companionDNA')
-        return mod.analyzeMessage(message)
-      } catch {
-        return { intent: 'normal_chat', isFactual: false, isPersonal: true, emotionalShift: [], userTone: 'neutral', directive: 'คุยธรรมชาติ' }
-      }
-    })()
+    const legacyEvent = analyzeMessage(message)
     const nextState = updateEmotionalState(baseState, legacyEvent, dna, message)
     const legacyMemory = updateEmotionalMemory(appMemory.emotionalMemory || {}, legacyEvent, message)
 
