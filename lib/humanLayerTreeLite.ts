@@ -132,6 +132,10 @@ function weightedPick<T extends string>(r: () => number, choices: Choice<T>[]): 
   return valid[valid.length - 1].value
 }
 
+function pick<T>(r: () => number, items: T[]): T {
+  return items[Math.floor(r() * items.length)]
+}
+
 function periodByHour(hour: number) {
   if (hour >= 0 && hour < 4) return 'ดึกมาก'
   if (hour >= 4 && hour < 7) return 'เช้ามืด'
