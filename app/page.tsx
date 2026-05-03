@@ -309,6 +309,9 @@ export default function Page() {
     adult: false,
   });
   const pressTimer = useRef<any>(null);
+  const recognitionRef = useRef<any>(null);
+  const recordingTextRef = useRef<string>("");
+  const recordingActiveRef = useRef(false);
   const readingRef = useRef<ReadingSession | null>(null);
 
   useEffect(() => {
@@ -683,14 +686,91 @@ export default function Page() {
     })();
   }
 
-  function pressMicStart() {
-    setStatus("recording");
-    pressTimer.current = setTimeout(() => {}, 999999);
+  function getSpeechRecognition() {
+    if (typeof window === "undefined") return null;
+    return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
   }
-  function pressMicEnd() {
+
+  function pressMicStart(e?: any) {
+    e?.preventDefault?.();
+    if (recordingActiveRef.current) return;
+
+    const SpeechRecognition = getSpeechRecognition();
+    if (!SpeechRecognition) {
+      notify("เครื่องนี้ยังไม่รองรับปุ่มพูด ให้พิมพ์แทนก่อนนะคะ");
+      return;
+    }
+
+    try {
+      window.speechSynthesis?.cancel?.();
+      recordingActiveRef.current = true;
+      recordingTextRef.current = "";
+      setStatus("recording");
+      notify("พูดได้เลยค่ะ…");
+
+      const rec = new SpeechRecognition();
+      recognitionRef.current = rec;
+      rec.lang = "th-TH";
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+
+      rec.onresult = (event: any) => {
+        let finalText = "";
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const piece = event.results[i]?.[0]?.transcript || "";
+          if (event.results[i]?.isFinal) finalText += piece;
+          else interimText += piece;
+        }
+        const heard = (finalText || interimText).trim();
+        if (heard) {
+          recordingTextRef.current = heard;
+          setInput(heard);
+        }
+      };
+
+      rec.onerror = () => {
+        recordingActiveRef.current = false;
+        recognitionRef.current = null;
+        setStatus("idle");
+        notify("ฟังเสียงไม่ชัด ลองพูดใหม่หรือพิมพ์แทนนะคะ");
+      };
+
+      rec.onend = () => {
+        const heard = recordingTextRef.current.trim();
+        recordingActiveRef.current = false;
+        recognitionRef.current = null;
+        setStatus("idle");
+        if (heard) {
+          setInput("");
+          send(heard);
+        } else {
+          notify("ยังไม่ได้ยินเสียงชัด ๆ ลองกดพูดใหม่อีกทีนะคะ");
+        }
+      };
+
+      rec.start();
+      pressTimer.current = setTimeout(() => {
+        try { rec.stop(); } catch {}
+      }, 12000);
+    } catch {
+      recordingActiveRef.current = false;
+      recognitionRef.current = null;
+      setStatus("idle");
+      notify("เปิดไมค์ไม่ได้ ลองอนุญาตไมค์ในเบราว์เซอร์ก่อนนะคะ");
+    }
+  }
+
+  function pressMicEnd(e?: any) {
+    e?.preventDefault?.();
     clearTimeout(pressTimer.current);
+    const rec = recognitionRef.current;
+    if (rec && recordingActiveRef.current) {
+      try { rec.stop(); } catch {}
+      return;
+    }
     setStatus("idle");
-    notify("เดโมนี้ยังไม่ส่งเสียงจริง ให้พิมพ์ทดสอบก่อนนะคะ");
   }
 
   function buyOrUse(o: Outfit) {
