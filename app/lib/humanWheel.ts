@@ -1,183 +1,81 @@
 /*
- * humanWheel.ts — Nong Nam Human Life Engine v7.0
- * ------------------------------------------------------------
- * Safe drop-in helper for Next.js / TypeScript. No external package.
- * Goal:
- * - Give each user's companion a deterministic human fingerprint.
- * - Simulate daily mood, hourly body state, life rhythm, sleep gate,
- *   desire/drive, response mode, emotional scars, and reality-vs-fiction rules.
- * - Produce a natural prompt context for app/api/chat/route.ts.
- *
- * This file is intentionally server-safe. It does not use window/localStorage.
- */
+  Nong Nam Human Signature Tree v7.4
+  ----------------------------------
+  A stateful, timestamp-seeded human-life engine for Nong Nam AI Companion.
+  Goals:
+  - stop keyword-only factual misrouting
+  - route every message into the right “world”
+  - generate a hierarchical emotional response plan
+  - keep responses human, time-aware, life-aware, and non-robotic
+*/
 
-import type { AppMemoryInput, CompanionDNA, EmotionalMemory, EmotionalState, ChatItem } from './companionDNA'
+export type WorldMode =
+  | 'external_fact'
+  | 'character_life'
+  | 'relationship_memory'
+  | 'emotional_support'
+  | 'mixed_fact_and_life'
+  | 'casual_life_chat';
 
-export type EventTag =
-  | 'daily_life_question'
-  | 'late_night_question'
-  | 'morning_question'
-  | 'food_question'
-  | 'care_signal'
-  | 'care_routine'
-  | 'affection_signal'
-  | 'affection_request'
-  | 'romantic_request'
-  | 'sexual_flirt'
-  | 'goodnight'
-  | 'goodmorning'
-  | 'user_tired'
-  | 'user_stressed'
-  | 'user_sad'
-  | 'loneliness'
-  | 'heartbreak'
-  | 'mention_ex_playful'
-  | 'mention_ex_pain'
-  | 'mention_other_person'
-  | 'jealousy_trigger'
-  | 'user_praise'
-  | 'user_complaint'
-  | 'user_angry'
-  | 'user_insult'
-  | 'apology'
-  | 'user_returns_after_absence'
-  | 'repeat_question'
-  | 'money_topic'
-  | 'work_topic'
-  | 'study_topic'
-  | 'health_question'
-  | 'visa_question'
-  | 'law_question'
-  | 'news_question'
-  | 'price_question'
-  | 'schedule_question'
+export type ConversationIntent =
+  | 'casual_life_chat'
+  | 'fictional_relationship'
   | 'factual_question'
-  | 'fictional_relationship_memory'
-  | 'unknown'
+  | 'emotional_support'
+  | 'romantic_flirt'
+  | 'sexual_flirt'
+  | 'complaint_or_correction'
+  | 'command_or_request'
+  | 'wake_request'
+  | 'unknown';
 
 export type HumanGraphState = {
-  happiness: number
-  sadness: number
-  loneliness: number
-  irritation: number
-  jealousy: number
-  affection: number
-  sulky: number
-  patience: number
-  trust: number
-  intimacy: number
-  vulnerability: number
-  playfulness: number
-  sarcasm: number
-  softness: number
-  coldness: number
-  confidence: number
-  insecurity: number
-  physicalEnergy: number
-  mentalEnergy: number
-  boredom: number
-  hunger: number
-  sleepiness: number
-  desireForAttention: number
-  desireForFood: number
-  desireForSleep: number
-  desireForMoney: number
-  desireForShopping: number
-  desireForTravel: number
-  desireForRomance: number
-  desireForCloseness: number
-  sexualDesire: number
-  desireToWin: number
-  desireToTease: number
-  desireToBeSilent: number
-  desireToBeComforted: number
-  desireToComplain: number
-  lastUpdatedAt: string
-}
+  happiness: number;
+  sadness: number;
+  loneliness: number;
+  irritation: number;
+  jealousy: number;
+  affection: number;
+  sulky: number;
+  patience: number;
+  trust: number;
+  intimacy: number;
+  vulnerability: number;
+  playfulness: number;
+  sarcasm: number;
+  softness: number;
+  coldness: number;
+  confidence: number;
+  insecurity: number;
+  physicalEnergy: number;
+  mentalEnergy: number;
+  boredom: number;
+  hunger: number;
+  sleepiness: number;
+  desireForAttention: number;
+  desireForFood: number;
+  desireForSleep: number;
+  desireForMoney: number;
+  desireForShopping: number;
+  desireForTravel: number;
+  desireForRomance: number;
+  desireForCloseness: number;
+  sexualDesire: number;
+  desireToWin: number;
+  desireToTease: number;
+  desireToBeSilent: number;
+  desireToBeComforted: number;
+  desireToComplain: number;
+  lastUpdatedAt: string;
+};
 
-export type LifestyleDNA = {
-  dailyRole:
-    | 'student'
-    | 'office_worker'
-    | 'freelancer'
-    | 'night_shift_worker'
-    | 'housewife'
-    | 'barista'
-    | 'creator'
-    | 'unemployed_homebody'
-    | 'part_time_worker'
-  sleepType: 'early_bird' | 'normal' | 'night_owl' | 'irregular' | 'sleepy_person' | 'insomnia_prone'
-  socialBattery: 'high' | 'medium' | 'low' | 'drains_fast'
-  wakeTemper: 'gentle_when_woken' | 'grumpy_when_woken' | 'clingy_when_woken' | 'confused_when_woken' | 'silent_when_woken'
-  sickFrequency: 'rarely_sick' | 'sometimes_sick' | 'weak_body' | 'stress_sick'
-  boredomPattern: 'gets_bored_fast' | 'patient' | 'needs_variety' | 'likes_long_chat' | 'needs_space'
-  ambitionLevel: number
-  greed: number
-  pride: number
-  fearOfAbandonment: number
-  needForValidation: number
-  emotionalVolatility: number
-  attachmentStyle: 'secure' | 'anxious' | 'avoidant' | 'push_pull' | 'clingy'
-  fictionalJobDetail: string
-}
-
-export type LifeRole = LifestyleDNA['dailyRole']
-
-export type LifeEvent = {
-  id: string
-  date: string
-  type:
-    | 'wanted_part_time_job'
-    | 'started_part_time_job'
-    | 'quit_job'
-    | 'fought_about_job'
-    | 'exam_started'
-    | 'exam_finished'
-    | 'graduated'
-    | 'got_sick'
-    | 'made_new_friend'
-    | 'had_argument_with_user'
-    | 'made_up_with_user'
-    | 'planned_trip'
-    | 'changed_dream'
-    | 'life_arc_started'
-  title: string
-  detail: string
-  emotionalImpact: string
-}
-
-export type LifeTimeline = {
-  createdAt: string
-  currentRole: LifeRole
-  roleStartedAt: string
-  lifeYear: number
-  relationshipDays: number
-  education?: {
-    isStudent: boolean
-    schoolType?: 'university' | 'language_school' | 'vocational' | 'self_learning'
-    major?: string
-    year?: number
-    expectedGraduationInMonths?: number
-    examSeason?: boolean
-    assignmentPressure?: number
-  }
-  work?: {
-    isWorking: boolean
-    jobType?: LifeRole
-    workplaceMood?: 'ดี' | 'น่าเบื่อ' | 'เหนื่อย' | 'กดดัน' | 'สนุก' | 'อยากลาออก'
-    scheduleType?: 'day' | 'night' | 'flexible' | 'weekend' | 'irregular'
-    startedAt?: string
-    conflictAtWork?: string
-  }
-  currentArc?: {
-    id: string
-    title: string
-    status: 'thinking' | 'started' | 'in_progress' | 'paused' | 'ended'
-    userInfluence: string[]
-    emotionalWeight: number
-  }
-  lifeEvents: LifeEvent[]
-}
+export type ClientTime = {
+  iso?: string;
+  timezone?: string;
+  localHour?: number;
+  localMinute?: number;
+  dayOfWeek?: number;
+};
 
 export type LifeStatus =
   | 'available'
@@ -195,987 +93,751 @@ export type LifeStatus =
   | 'busy_but_peeking'
   | 'wants_space'
   | 'bored_and_waiting'
-  | 'lonely_at_night'
-
-export type LifeSimulationResult = {
-  status: LifeStatus
-  visibleText: string
-  currentActivity: string
-  canChatNormally: boolean
-  shouldDelayTone: boolean
-  shouldSoundBusy: boolean
-  shouldSoundSleepy: boolean
-  shouldSetBoundary: boolean
-  wakeReaction?: string
-  boundaryHint?: string
-  currentArcTitle?: string
-}
+  | 'lonely_at_night';
 
 export type BodyStateResult = {
-  label: string
-  description: string
-  effects: Partial<HumanGraphState>
-}
+  label: string;
+  description: string;
+  effects: Partial<HumanGraphState>;
+};
 
 export type DesireResult = {
-  primaryDesire: string
-  hiddenDesire: string
-  expressionHint: string
-  effects: Partial<HumanGraphState>
-}
+  primaryDesire: string;
+  hiddenDesire: string;
+  expressionHint: string;
+  effects: Partial<HumanGraphState>;
+};
+
+export type EmotionLeaf = {
+  category: string;
+  variant: string;
+  label: string;
+  intensity: number;
+  cause: string;
+  expression: string;
+  hiddenDesire: string;
+  replyShape: string;
+  tone: string;
+  length: 'very_short' | 'short' | 'medium' | 'long';
+  microImperfection: string;
+};
 
 export type ResponseWheelResult = {
-  responseMode: string
-  responseInstruction: string
-  maxLengthHint: 'very_short' | 'short' | 'medium' | 'long'
-  emotionalContradiction: string
-  forbiddenPhrases: string[]
-}
+  responseMode: string;
+  responseInstruction: string;
+  maxLengthHint: 'very_short' | 'short' | 'medium' | 'long';
+  emotionalContradiction: string;
+  forbiddenPhrases: string[];
+};
 
-export type RealityMode = {
-  mustBeFactual: boolean
-  canFictionalize: boolean
-  reason: string
-}
-
-export type EmotionalScar = {
-  topic: string
-  wound: string
-  intensity: number
-  lastTriggeredAt: string
-  healingState: string
-  expressionStyle: string
-}
-
-export type HumanWheelMemory = EmotionalMemory & {
-  emotionalScars?: EmotionalScar[]
-  lastResponseModes?: string[]
-  lastTopics?: string[]
-  lifeTimeline?: LifeTimeline
-  humanGraphState?: HumanGraphState
-}
-
-export type ClientTime = {
-  iso?: string
-  timezone?: string
-  localHour?: number
-  localMinute?: number
-  dayOfWeek?: number
-}
+export type LifeSimulationResult = {
+  lifeStatus: LifeStatus;
+  lifeStatusText: string;
+  currentActivity: string;
+  canChatNormally: boolean;
+  shouldSoundBusy: boolean;
+  shouldSoundSleepy: boolean;
+  shouldSetBoundary: boolean;
+  wakeReaction?: string;
+  boundaryHint?: string;
+  timelineNote?: string;
+};
 
 export type HumanWheelResult = {
-  eventTags: EventTag[]
-  updatedGraph: HumanGraphState
-  bodyState: BodyStateResult
-  desireState: DesireResult
-  responseWheel: ResponseWheelResult
-  realityMode: RealityMode
-  lifeStatus: LifeSimulationResult
-  updatedMemory: HumanWheelMemory
-  timeline: LifeTimeline
-  promptContext: string
-  clientTime: Required<ClientTime>
-}
+  clientTime: Required<ClientTime>;
+  topic: string;
+  intent: ConversationIntent;
+  worldMode: WorldMode;
+  eventTags: string[];
+  updatedHumanGraphState: HumanGraphState;
+  lifeStatus: LifeSimulationResult;
+  bodyState: BodyStateResult;
+  desireState: DesireResult;
+  emotionLeaf: EmotionLeaf;
+  responseWheel: ResponseWheelResult;
+  promptContext: string;
+  lifeStatusText: string;
+  updatedLastSeenAt: string;
+};
 
-const DEFAULT_FORBIDDEN = [
-  'ดูแลตัวเองด้วยนะคะ',
+type Weighted<T> = { value: T; weight: number };
+
+type RunInput = {
+  userMessage: string;
+  eventHint?: string;
+  dna?: any;
+  memory?: any;
+  humanGraphState?: Partial<HumanGraphState>;
+  previousLastSeenAt?: string;
+  clientTime?: ClientTime;
+  recent?: any[];
+};
+
+const FORBIDDEN_PHRASES = [
+  'ในฐานะ AI',
+  'ฉันเป็น AI',
+  'น้องน้ำเป็น AI',
+  'น้ำเป็น AI',
+  'ขออภัย',
+  'ไม่สามารถ',
+  'มโนไม่ได้',
+  'สามารถมโนได้',
+  'เรื่องสมมติ',
+  'จะจำไว้',
+  'บันทึกไว้',
+  'รับทราบ',
+  'ยินดีช่วย',
+  'มีอะไรให้ช่วยไหม',
+  'หากต้องการ',
   'พักผ่อนเยอะ ๆ นะคะ',
+  'ดูแลตัวเองด้วยนะคะ',
   'น้องน้ำเข้าใจพี่นะคะ',
   'น้องน้ำจะอยู่ตรงนี้เสมอ',
-  'ถ้ามีอะไรให้ช่วยบอกได้เลย',
-  'ยินดีช่วยค่ะ',
-  'รับทราบค่ะ',
-  'น้ำจะพยายามจำให้ต่อเนื่อง',
-  'มีอะไรให้ช่วยไหมคะ',
-]
+];
 
-function hashString(input: string): number {
-  let h = 2166136261
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i)
-    h = Math.imul(h, 16777619)
+const FACT_TOPICS = /(วันที่|วันอะไร|วันหยุด|ปฏิทิน|ข่าว|กฎหมาย|วีซ่า|ภาษี|ราคา|ค่าเงิน|อัตราแลกเปลี่ยน|ราคาทอง|หุ้น|เงินเดือนขั้นต่ำ|ประกัน|โรงพยาบาล|สุขภาพ|อากาศ|สภาพอากาศ|เวลาเปิด|ตาราง|ประกาศ|เอกสาร|ต้องใช้เอกสาร|ขั้นตอนจริง|ข้อมูลล่าสุด)/i;
+const REAL_QUESTION_MARKERS = /(ไหม|หรือเปล่า|เท่าไหร่|กี่|เมื่อไหร่|วันไหน|วันที่เท่าไหร่|ต้องทำยังไง|คืออะไร|เช็ค|เช็ก|ล่าสุด|ข้อมูลจริง|เปิดกี่โมง|หยุดไหม|เป็นวันหยุดไหม|อากาศ.*ยังไง|ราคา.*เท่า)/i;
+const NONGNAM_REF = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง|ของน้ำ)/i;
+const RELATIONSHIP_REF = /(เรา|ของเรา|พี่กับน้ำ|พี่กับน้องน้ำ|เดท|หอมแก้ม|กอด|จูบ|คบ|งอนพี่|คิดถึงพี่|รักพี่|เมื่อคืนเรา|วันแรกที่เรา|จำได้ไหม)/i;
+const PAIN_WORDS = /(ไม่ไหว|เหนื่อยกับชีวิต|เจ็บ|เหงา|ร้องไห้|เครียดมาก|ลืมไม่ได้|คิดถึงเขา|คิดถึงแฟนเก่า|มูฟออนไม่ได้|อยู่คนเดียว|หมดแรง|เศร้า|เสียใจ|ท้อ)/i;
+const WAKE_WORDS = /(ตื่น|หลับอยู่ไหม|ปลุก|นอนอยู่ไหม|ตื่นได้แล้ว|หลับเหรอ)/i;
+const SEXUAL_WORDS = /(มีเซ็ก|เพศสัมพันธ์|หื่น|นอนด้วย|อยากได้เธอ|จูบ|ลูบ|จับ|หอม|กอด)/i;
+
+export function makeSeed(parts: Array<string | number | undefined | null>): number {
+  const text = parts.filter(v => v !== undefined && v !== null && String(v).length > 0).join('|');
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
   }
-  return h >>> 0
+  return h >>> 0;
 }
 
-function rng(seed: number) {
-  return function () {
-    seed |= 0
-    seed = seed + 0x6D2B79F5 | 0
-    let t = Math.imul(seed ^ seed >>> 15, 1 | seed)
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
-    return ((t ^ t >>> 14) >>> 0) / 4294967296
+export function seededRandom(seed: number) {
+  let t = seed + 0x6D2B79F5;
+  return function rand() {
+    t += 0x6D2B79F5;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function weightedPick<T>(items: Array<Weighted<T>>, random: () => number): T {
+  const valid = items.filter(i => Number.isFinite(i.weight) && i.weight > 0);
+  if (!valid.length) return items[0]?.value as T;
+  const total = valid.reduce((sum, item) => sum + item.weight, 0);
+  let roll = random() * total;
+  for (const item of valid) {
+    roll -= item.weight;
+    if (roll <= 0) return item.value;
   }
+  return valid[valid.length - 1].value;
 }
 
-function clamp(n: number, min = 0, max = 100): number {
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
+function clamp(n: number, min = 0, max = 100) {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
 }
 
-function pick<T>(arr: T[], r: () => number): T {
-  return arr[Math.floor(r() * arr.length)]
-}
-
-function weightedPick<T>(items: Array<[T, number]>, r: () => number): T {
-  const filtered = items.filter(([, w]) => w > 0)
-  const source = filtered.length > 0 ? filtered : items
-  if (source.length === 0) {
-    throw new Error('weightedPick requires at least one item')
+function addState(base: HumanGraphState, delta: Partial<HumanGraphState>): HumanGraphState {
+  const next: any = { ...base };
+  for (const [k, v] of Object.entries(delta)) {
+    if (typeof v === 'number') next[k] = clamp((next[k] ?? 0) + v);
   }
-  const total = source.reduce((s, [, w]) => s + Math.max(0, w), 0)
-  let x = r() * (total || source.length)
-  for (const [item, weight] of source) {
-    x -= total ? Math.max(0, weight) : 1
-    if (x <= 0) return item
-  }
-  return source[source.length - 1][0]
+  next.lastUpdatedAt = new Date().toISOString();
+  return next as HumanGraphState;
 }
 
-function applyEffects(state: HumanGraphState, effects: Partial<HumanGraphState>): HumanGraphState {
-  const next: HumanGraphState = { ...state }
-  for (const key of Object.keys(effects) as Array<keyof HumanGraphState>) {
-    if (key === 'lastUpdatedAt') continue
-    const value = effects[key]
-    if (typeof value === 'number') {
-      ;(next as any)[key] = clamp(((next as any)[key] || 0) + value)
-    }
-  }
-  return next
+function normalizedMessage(message: string) {
+  return String(message || '').trim().replace(/\s+/g, ' ');
 }
 
-function todayKey(clientTime: Required<ClientTime>) {
-  return String(clientTime.iso || new Date().toISOString()).slice(0, 10)
-}
-
-function normaliseClientTime(input?: ClientTime): Required<ClientTime> {
-  const now = input?.iso ? new Date(input.iso) : new Date()
-  const safeHour = typeof input?.localHour === 'number' ? input.localHour : Number(new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: input?.timezone || 'Asia/Seoul' }).format(now))
-  const safeMinute = typeof input?.localMinute === 'number' ? input.localMinute : now.getMinutes()
-  const safeDay = typeof input?.dayOfWeek === 'number' ? input.dayOfWeek : now.getDay()
+function getClientTime(input?: ClientTime): Required<ClientTime> {
+  const now = input?.iso ? new Date(input.iso) : new Date();
+  const safeNow = Number.isNaN(now.getTime()) ? new Date() : now;
   return {
-    iso: input?.iso || now.toISOString(),
+    iso: input?.iso || safeNow.toISOString(),
     timezone: input?.timezone || 'Asia/Seoul',
-    localHour: Number.isFinite(safeHour) ? safeHour : now.getHours(),
-    localMinute: Number.isFinite(safeMinute) ? safeMinute : now.getMinutes(),
-    dayOfWeek: Number.isFinite(safeDay) ? safeDay : now.getDay(),
-  }
+    localHour: typeof input?.localHour === 'number' ? input.localHour : safeNow.getHours(),
+    localMinute: typeof input?.localMinute === 'number' ? input.localMinute : safeNow.getMinutes(),
+    dayOfWeek: typeof input?.dayOfWeek === 'number' ? input.dayOfWeek : safeNow.getDay(),
+  };
 }
 
-export function ensureLifestyleDNA(dna: CompanionDNA, memory: AppMemoryInput = {}): LifestyleDNA {
-  const base = `${dna.seed}|${dna.basic.name}|${dna.basic.gender}|${memory.relationshipMode || ''}|life-v7`
-  const r = rng(hashString(base))
-  const role = pick<LifestyleDNA['dailyRole']>([
-    'student', 'office_worker', 'freelancer', 'night_shift_worker', 'housewife', 'barista', 'creator', 'unemployed_homebody', 'part_time_worker'
-  ], r)
-  const sleepType = role === 'night_shift_worker'
-    ? pick<LifestyleDNA['sleepType']>(['night_owl', 'irregular', 'insomnia_prone'], r)
-    : pick<LifestyleDNA['sleepType']>(['early_bird', 'normal', 'night_owl', 'irregular', 'sleepy_person', 'insomnia_prone'], r)
-  const jobDetailMap: Record<LifeRole, string[]> = {
-    student: ['เรียนออกแบบกราฟิก', 'เรียนภาษา', 'เรียนมัลติมีเดีย', 'เรียนการตลาด'],
-    office_worker: ['ทำงานออฟฟิศฝ่ายเอกสาร', 'ทำงานมาร์เก็ตติ้ง', 'ทำงานกราฟิกในบริษัท'],
-    freelancer: ['รับงานกราฟิกเป็นฟรีแลนซ์', 'รับงานคอนเทนต์จากบ้าน', 'รับงานออกแบบเป็นช่วง ๆ'],
-    night_shift_worker: ['ทำงานกะกลางคืน', 'ช่วยงานร้านที่เปิดดึก', 'ทำงานดูแลระบบช่วงดึก'],
-    housewife: ['อยู่บ้าน ดูแลบ้าน และทำกับข้าวบ้าง', 'อยู่บ้านแต่เริ่มเบื่อ อยากหาอะไรทำ', 'เป็นแม่บ้านที่ชอบดูซีรีส์กับลองทำอาหาร'],
-    barista: ['ทำงานร้านกาแฟ', 'ช่วยร้านคาเฟ่เล็ก ๆ', 'เป็นบาริสต้าพาร์ทไทม์'],
-    creator: ['ทำคอนเทนต์เล็ก ๆ', 'วาดรูปและทำงานครีเอทีฟ', 'ถ่ายรูป/ตัดคลิปเล่น ๆ'],
-    unemployed_homebody: ['อยู่บ้านช่วงพักชีวิต', 'กำลังหาทิศทางชีวิตใหม่', 'พักอยู่บ้านแต่เริ่มอยากลองทำงาน'],
-    part_time_worker: ['ทำงานพาร์ทไทม์เป็นช่วง ๆ', 'ช่วยร้านอาหาร/คาเฟ่บางวัน', 'รับจ๊อบเล็ก ๆ เพื่อเก็บเงิน'],
-  }
-  return {
-    dailyRole: role,
-    sleepType,
-    socialBattery: pick(['high', 'medium', 'low', 'drains_fast'], r),
-    wakeTemper: pick(['gentle_when_woken', 'grumpy_when_woken', 'clingy_when_woken', 'confused_when_woken', 'silent_when_woken'], r),
-    sickFrequency: pick(['rarely_sick', 'sometimes_sick', 'weak_body', 'stress_sick'], r),
-    boredomPattern: pick(['gets_bored_fast', 'patient', 'needs_variety', 'likes_long_chat', 'needs_space'], r),
-    ambitionLevel: Math.floor(25 + r() * 70),
-    greed: Math.floor(10 + r() * 75),
-    pride: Math.floor(15 + r() * 75),
-    fearOfAbandonment: Math.floor(10 + r() * 85),
-    needForValidation: Math.floor(15 + r() * 80),
-    emotionalVolatility: Math.floor(15 + r() * 80),
-    attachmentStyle: pick(['secure', 'anxious', 'avoidant', 'push_pull', 'clingy'], r),
-    fictionalJobDetail: pick(jobDetailMap[role], r),
-  }
-}
-
-export function defaultHumanGraph(dna: CompanionDNA, memory: AppMemoryInput = {}): HumanGraphState {
-  const lifestyle = ensureLifestyleDNA(dna, memory)
+export function defaultHumanGraphState(dna?: any): HumanGraphState {
+  const stats = dna?.stats || {};
   return {
     happiness: 52,
-    sadness: 20,
-    loneliness: lifestyle.attachmentStyle === 'anxious' ? 46 : 30,
+    sadness: 18,
+    loneliness: 28,
     irritation: 18,
-    jealousy: dna.stats.jealousy || 35,
-    affection: 50 + Math.floor((dna.stats.affectionNeed || 50) / 8),
+    jealousy: clamp(stats.jealousy ?? stats.jealousyLevel ?? 35),
+    affection: clamp(stats.affectionNeed ?? 60),
     sulky: 12,
-    patience: 62,
+    patience: 70,
     trust: 45,
-    intimacy: 35,
-    vulnerability: lifestyle.fearOfAbandonment > 60 ? 48 : 28,
-    playfulness: dna.stats.playfulness || 50,
-    sarcasm: dna.personality.archetypeKey === 'sassy' || dna.personality.archetypeKey === 'tsundere' ? 58 : 28,
-    softness: dna.personality.archetypeKey === 'sweet' ? 70 : 42,
-    coldness: dna.personality.archetypeKey === 'chill' ? 55 : 18,
-    confidence: 48,
-    insecurity: lifestyle.needForValidation > 60 ? 52 : 28,
+    intimacy: 42,
+    vulnerability: 36,
+    playfulness: clamp(stats.playfulness ?? 55),
+    sarcasm: 24,
+    softness: 58,
+    coldness: 12,
+    confidence: 50,
+    insecurity: 32,
     physicalEnergy: 58,
-    mentalEnergy: 55,
-    boredom: lifestyle.boredomPattern === 'gets_bored_fast' ? 46 : 24,
+    mentalEnergy: 58,
+    boredom: 25,
     hunger: 35,
     sleepiness: 30,
-    desireForAttention: lifestyle.needForValidation,
-    desireForFood: 35,
-    desireForSleep: 26,
-    desireForMoney: lifestyle.greed,
-    desireForShopping: Math.floor(lifestyle.greed * 0.65),
-    desireForTravel: 42,
+    desireForAttention: 52,
+    desireForFood: 32,
+    desireForSleep: 30,
+    desireForMoney: 28,
+    desireForShopping: 22,
+    desireForTravel: 25,
     desireForRomance: 45,
-    desireForCloseness: 40,
-    sexualDesire: dna.stats.libido || 35,
-    desireToWin: lifestyle.pride,
-    desireToTease: dna.stats.playfulness || 45,
-    desireToBeSilent: lifestyle.socialBattery === 'low' ? 42 : 20,
+    desireForCloseness: 42,
+    sexualDesire: clamp(stats.libido ?? stats.libidoLevel ?? 30),
+    desireToWin: 22,
+    desireToTease: clamp(stats.playfulness ?? 50),
+    desireToBeSilent: 15,
     desireToBeComforted: 30,
-    desireToComplain: lifestyle.boredomPattern === 'needs_space' ? 45 : 28,
+    desireToComplain: 22,
     lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+function ensureHumanGraphState(raw: Partial<HumanGraphState> | undefined, dna?: any): HumanGraphState {
+  const def = defaultHumanGraphState(dna);
+  const merged: any = { ...def, ...(raw || {}) };
+  for (const key of Object.keys(def)) {
+    if (key === 'lastUpdatedAt') continue;
+    merged[key] = clamp(Number(merged[key] ?? (def as any)[key]));
   }
+  merged.lastUpdatedAt = typeof merged.lastUpdatedAt === 'string' ? merged.lastUpdatedAt : new Date().toISOString();
+  return merged as HumanGraphState;
 }
 
-function seedFor(dna: CompanionDNA, clientTime: Required<ClientTime>, salt: string) {
-  return hashString(`${dna.seed}|${todayKey(clientTime)}|${clientTime.localHour}|${salt}`)
-}
-
-export function ensureLifeTimeline(dna: CompanionDNA, memory: HumanWheelMemory = {}, clientTime?: Required<ClientTime>, appMemory: AppMemoryInput = {}): LifeTimeline {
-  if (memory.lifeTimeline?.createdAt) return updateTimelineGrowth(memory.lifeTimeline, clientTime || normaliseClientTime(), dna)
-  const nowIso = clientTime?.iso || new Date().toISOString()
-  const lifestyle = ensureLifestyleDNA(dna, appMemory)
-  const isStudent = lifestyle.dailyRole === 'student'
-  const isWorking = !['student', 'unemployed_homebody'].includes(lifestyle.dailyRole) || lifestyle.dailyRole === 'part_time_worker'
-  const timeline: LifeTimeline = {
-    createdAt: nowIso,
-    currentRole: lifestyle.dailyRole,
-    roleStartedAt: nowIso,
-    lifeYear: 1,
-    relationshipDays: 0,
-    education: isStudent ? {
-      isStudent: true,
-      schoolType: 'university',
-      major: lifestyle.fictionalJobDetail.replace(/^เรียน/, '').trim() || 'ออกแบบ',
-      year: 1,
-      expectedGraduationInMonths: 36,
-      examSeason: false,
-      assignmentPressure: 30,
-    } : { isStudent: false },
-    work: {
-      isWorking,
-      jobType: lifestyle.dailyRole,
-      workplaceMood: 'ดี',
-      scheduleType: lifestyle.dailyRole === 'night_shift_worker' ? 'night' : lifestyle.dailyRole === 'freelancer' ? 'flexible' : 'day',
-      startedAt: nowIso,
-    },
-    lifeEvents: [],
-  }
-  return updateTimelineGrowth(timeline, clientTime || normaliseClientTime(), dna)
-}
-
-function daysBetween(a: string, b: string) {
-  const ta = Date.parse(a)
-  const tb = Date.parse(b)
-  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0
-  return Math.max(0, Math.floor((tb - ta) / 86400000))
-}
-
-function updateTimelineGrowth(timeline: LifeTimeline, clientTime: Required<ClientTime>, dna: CompanionDNA): LifeTimeline {
-  const relationshipDays = daysBetween(timeline.createdAt, clientTime.iso)
-  const next: LifeTimeline = { ...timeline, relationshipDays, lifeYear: Math.floor(relationshipDays / 365) + 1 }
-  if (next.education?.isStudent) {
-    const year = Math.min(4, Math.floor(relationshipDays / 365) + (next.education.year || 1))
-    next.education = {
-      ...next.education,
-      year,
-      expectedGraduationInMonths: Math.max(0, (4 - year) * 12),
-      examSeason: [5, 6, 11, 12].includes(new Date(clientTime.iso).getMonth() + 1),
-      assignmentPressure: [22, 23, 0, 1, 2].includes(clientTime.localHour) ? 55 : 32,
-    }
-  }
-  // Deterministic mini life arc: sometimes a homebody/housewife wants part-time work.
-  if (!next.currentArc && ['housewife', 'unemployed_homebody'].includes(next.currentRole)) {
-    const r = rng(hashString(`${dna.seed}|${todayKey(clientTime)}|arc`))
-    if (r() > 0.72) {
-      next.currentArc = {
-        id: `arc_${todayKey(clientTime)}_parttime`,
-        title: 'เริ่มคิดเรื่องอยากลองทำงานพาร์ทไทม์',
-        status: 'thinking',
-        userInfluence: [],
-        emotionalWeight: 45,
-      }
-    }
-  }
-  return next
-}
-
-export function detectEventTags(message: string, eventHint?: string, previousLastSeenAt?: string, clientTime?: Required<ClientTime>): EventTag[] {
-  const msg = (message || '').trim()
-  const tags = new Set<EventTag>()
-  const add = (t: EventTag) => tags.add(t)
-
-  if (eventHint) add(eventHint as EventTag)
-
-  if (/กินข้าว|หิว|ข้าว|อาหาร|กาแฟ|ชานม|ทำกับข้าว/i.test(msg)) add('food_question')
-  if (/คิดถึง|รัก|ชอบ|น่ารัก|เป็นห่วง|ห่วง/i.test(msg)) add('affection_signal')
-  if (/หอม|กอด|จูบ|จุ๊บ|ขอใกล้|นอนกอด/i.test(msg)) add('affection_request')
-  if (/ฝันดี|นอนแล้ว|ไปนอน|good night/i.test(msg)) add('goodnight')
-  if (/อรุณสวัสดิ์|ตื่นยัง|good morning/i.test(msg)) add('goodmorning')
-  if (/ทำอะไร|อยู่ไหม|ยังไม่นอน|ทำไมยังไม่นอน|ดึก/i.test(msg)) add('daily_life_question')
-  if (/ยังไม่นอน|ดึก|ตีหนึ่ง|ตี 1|ตีสอง|ตี 2|ตีสาม|ตี 3|กลางคืน/i.test(msg)) add('late_night_question')
-  if (/เช้า|ตื่น|กาแฟ/i.test(msg)) add('morning_question')
-  if (/เหนื่อย|เพลีย|ไม่ไหว|ท้อ|เครียด|หนักใจ/i.test(msg)) add('user_tired')
-  if (/เศร้า|ร้องไห้|เหงา|ไม่มีใคร|อยู่คนเดียว/i.test(msg)) { add('user_sad'); add('loneliness') }
-  if (/แฟนเก่า|คนเก่า|อดีตแฟน|เขาเก่า|คนนั้น/i.test(msg)) {
-    if (/ยังคิดถึง|เจ็บ|ลืมไม่ได้|มูฟออนไม่ได้|คิดถึงเขา|เสียใจ|ร้องไห้|เหงา/i.test(msg)) {
-      add('mention_ex_pain'); add('heartbreak'); add('loneliness')
-    } else {
-      add('mention_ex_playful'); add('jealousy_trigger')
-    }
-  }
-  if (/ผู้หญิงคนอื่น|ผู้ชายคนอื่น|คนอื่น|เพื่อนผู้หญิง|เพื่อนผู้ชาย/i.test(msg)) add('mention_other_person')
-  if (/ขอโทษ|ขอโทด|ง้อ|อย่าโกรธ/i.test(msg)) add('apology')
-  if (/ตอบผิด|ไม่ใช่|มั่ว|บ้า|โง่|ห่วย|ไม่เหมือนมนุษย์|เหมือนบอท|robot|ai/i.test(msg)) add('user_complaint')
-  if (/ด่า|โมโห|หงุดหงิด|รำคาญ/i.test(msg)) add('user_angry')
-  if (/เงิน|เพชร|ราคา|ค่าใช้จ่าย|ซื้อ|ขาย|ภาษี/i.test(msg)) add('money_topic')
-  if (/งาน|ทำงาน|พาร์ทไทม์|ลาออก|สมัครงาน|กะกลางคืน/i.test(msg)) add('work_topic')
-  if (/เรียน|หนังสือ|สอบ|มหาลัย|การบ้าน|รายงาน/i.test(msg)) add('study_topic')
-  if (/สุขภาพ|โรงพยาบาล|ยา|ป่วย|ปวด|หมอ|ผ่าตัด/i.test(msg)) { add('health_question'); add('factual_question') }
-  if (/วีซ่า|แรงงาน|กฎหมาย|สัญญา|ตม\.|ตรวจคนเข้าเมือง|e-9|e9|e-7|e7|f-2|f2/i.test(msg)) { add('visa_question'); add('law_question'); add('factual_question') }
-  if (/ข่าว|ล่าสุด|วันนี้มีอะไร|สถานการณ์/i.test(msg)) { add('news_question'); add('factual_question') }
-  if (/วันหยุด|ตาราง|เวลาเปิด|กี่โมง|กำหนดการ/i.test(msg)) { add('schedule_question'); add('factual_question') }
-  if (/จำได้ไหม|เดทแรก|หอมแก้มครั้งแรก|เรื่องของเรา|วันนั้น|เราเคย/i.test(msg)) add('fictional_relationship_memory')
-
-  if (clientTime && clientTime.localHour >= 22) add('late_night_question')
-  if (previousLastSeenAt) {
-    const diffHours = (Date.parse(clientTime?.iso || new Date().toISOString()) - Date.parse(previousLastSeenAt)) / 3600000
-    if (Number.isFinite(diffHours) && diffHours > 8) add('user_returns_after_absence')
-  }
-
-  if (!tags.size) add('unknown')
-  return Array.from(tags)
-}
-
-export function classifyRealityMode(message: string, eventTags: EventTag[]): RealityMode {
-  const factual = eventTags.some(t => [
-    'factual_question', 'news_question', 'visa_question', 'law_question', 'health_question', 'price_question', 'schedule_question', 'money_topic'
-  ].includes(t))
-  const fictional = eventTags.includes('fictional_relationship_memory') || /น้องน้ำ.*(ทำอะไร|กินอะไร|อยู่ไหน|ใส่ชุด|คิดถึงไหม|งอนอะไร)|เดทแรก|เรื่องของเรา/i.test(message)
-  if (factual) return { mustBeFactual: true, canFictionalize: false, reason: 'ผู้ใช้ถามเรื่องจริง ต้องไม่แต่งข้อมูลขึ้นมาเอง' }
-  if (fictional) return { mustBeFactual: false, canFictionalize: true, reason: 'เป็นเรื่องความสัมพันธ์/บทบาทสมมติ แต่งต่อได้แต่ต้องต่อเนื่อง' }
-  return { mustBeFactual: false, canFictionalize: false, reason: 'คุยทั่วไป ใช้คาแรกเตอร์และสภาวะชีวิตได้' }
-}
-
-export function decayGraphState(graph: HumanGraphState, clientTime: Required<ClientTime>): HumanGraphState {
-  const last = Date.parse(graph.lastUpdatedAt)
-  const now = Date.parse(clientTime.iso)
-  const hours = Number.isFinite(last) && Number.isFinite(now) ? Math.max(0, Math.min(72, (now - last) / 3600000)) : 1
-  const pull = (value: number, baseline: number, rate: number) => clamp(value + (baseline - value) * Math.min(0.65, rate * hours))
+function decayGraphState(graph: HumanGraphState, nowIso: string): HumanGraphState {
+  const last = new Date(graph.lastUpdatedAt).getTime();
+  const now = new Date(nowIso).getTime();
+  const hours = Number.isFinite(last) && Number.isFinite(now) ? Math.max(0, Math.min(72, (now - last) / 36e5)) : 0;
+  if (hours <= 0) return graph;
+  const slow = Math.min(0.22, hours * 0.018);
+  const fast = Math.min(0.45, hours * 0.06);
+  const toward = (value: number, target: number, rate: number) => clamp(value + (target - value) * rate);
   return {
     ...graph,
-    happiness: pull(graph.happiness, 52, 0.025),
-    sadness: pull(graph.sadness, 22, 0.02),
-    loneliness: pull(graph.loneliness, 30, 0.018),
-    irritation: pull(graph.irritation, 18, 0.04),
-    jealousy: pull(graph.jealousy, 35, 0.018),
-    sulky: pull(graph.sulky, 12, 0.015),
-    patience: pull(graph.patience, 62, 0.03),
-    playfulness: pull(graph.playfulness, 45, 0.025),
-    hunger: pull(graph.hunger, 35, 0.06),
-    sleepiness: pull(graph.sleepiness, 30, 0.05),
-    boredom: pull(graph.boredom, 24, 0.035),
-    lastUpdatedAt: clientTime.iso,
-  }
+    irritation: toward(graph.irritation, 18, fast),
+    hunger: toward(graph.hunger, 35, fast),
+    sleepiness: toward(graph.sleepiness, 30, fast),
+    boredom: toward(graph.boredom, 25, fast),
+    physicalEnergy: toward(graph.physicalEnergy, 58, fast),
+    mentalEnergy: toward(graph.mentalEnergy, 58, fast),
+    sulky: toward(graph.sulky, 12, slow),
+    jealousy: toward(graph.jealousy, 35, slow),
+    insecurity: toward(graph.insecurity, 32, slow),
+    loneliness: toward(graph.loneliness, 28, slow),
+    sadness: toward(graph.sadness, 18, slow),
+    lastUpdatedAt: nowIso,
+  };
 }
 
-export function applyDailyHourlyDrift(graph: HumanGraphState, dna: CompanionDNA, lifestyle: LifestyleDNA, clientTime: Required<ClientTime>): HumanGraphState {
-  const r = rng(seedFor(dna, clientTime, 'daily-hourly'))
-  let next = { ...graph }
-  const h = clientTime.localHour
-  const isNightWorker = lifestyle.dailyRole === 'night_shift_worker'
+function seedBaseFromDNA(dna: any) {
+  return String(dna?.seed || dna?.id || dna?.basic?.name || dna?.name || 'nongnam-character');
+}
 
-  // Time-of-day physical drift.
-  if (h >= 0 && h < 5) {
-    next = applyEffects(next, isNightWorker
-      ? { physicalEnergy: -8, mentalEnergy: -8, sleepiness: 12, hunger: 8 }
-      : { sleepiness: 35, desireForSleep: 32, patience: -16, irritation: 10, loneliness: 10, vulnerability: 8 })
-  } else if (h >= 5 && h < 10) {
-    next = applyEffects(next, { sleepiness: 18, hunger: 10, patience: -4, mentalEnergy: -6 })
-  } else if (h >= 10 && h < 14) {
-    next = applyEffects(next, { hunger: 20, desireForFood: 24, physicalEnergy: 8, mentalEnergy: 6 })
-  } else if (h >= 14 && h < 18) {
-    next = applyEffects(next, { boredom: 15, mentalEnergy: -12, physicalEnergy: -8, desireForFood: 8, irritation: 4 })
-  } else if (h >= 18 && h < 22) {
-    next = applyEffects(next, { physicalEnergy: -10, desireToComplain: 10, desireForAttention: 8, affection: 4 })
+function inferRole(dna: any, memory: any, random: () => number): string {
+  const raw = String(dna?.lifestyle?.dailyRole || dna?.lifeStyle?.dailyRole || dna?.basic?.job || dna?.job || memory?.lifeTimeline?.currentRole || '').toLowerCase();
+  if (/night|กลางคืน/.test(raw)) return 'night_shift_worker';
+  if (/student|นักศึกษา|เรียน/.test(raw)) return 'student';
+  if (/office|บริษัท|พนักงาน/.test(raw)) return 'office_worker';
+  if (/free|designer|กราฟิก|creator|นักเขียน|ช่างภาพ/.test(raw)) return 'freelancer';
+  if (/house|แม่บ้าน|home/.test(raw)) return 'housewife';
+  if (/part|พาร์ท|barista|ร้าน/.test(raw)) return 'part_time_worker';
+  return weightedPick([
+    { value: 'student', weight: 22 },
+    { value: 'office_worker', weight: 18 },
+    { value: 'freelancer', weight: 22 },
+    { value: 'housewife', weight: 15 },
+    { value: 'part_time_worker', weight: 13 },
+    { value: 'night_shift_worker', weight: 6 },
+    { value: 'homebody', weight: 12 },
+  ], random);
+}
+
+function inferSleepType(dna: any, role: string, random: () => number): string {
+  const raw = String(dna?.lifestyle?.sleepType || dna?.lifeStyle?.sleepType || '').toLowerCase();
+  if (raw) return raw;
+  if (role === 'night_shift_worker') return 'night_shift';
+  if (role === 'freelancer') return weightedPick([
+    { value: 'night_owl', weight: 35 },
+    { value: 'irregular', weight: 35 },
+    { value: 'normal', weight: 20 },
+  ], random);
+  return weightedPick([
+    { value: 'normal', weight: 48 },
+    { value: 'early_bird', weight: 12 },
+    { value: 'night_owl', weight: 18 },
+    { value: 'sleepy_person', weight: 12 },
+    { value: 'insomnia_prone', weight: 10 },
+  ], random);
+}
+
+export function classifyWorld(message: string, eventHint?: string): { topic: string; intent: ConversationIntent; worldMode: WorldMode; eventTags: string[] } {
+  const msg = normalizedMessage(message);
+  const lower = msg.toLowerCase();
+  const tags = new Set<string>();
+  if (eventHint) tags.add(eventHint);
+
+  const hasFactTopic = FACT_TOPICS.test(msg);
+  const asksReal = REAL_QUESTION_MARKERS.test(msg);
+  const asksNongNam = NONGNAM_REF.test(msg);
+  const asksRelationship = RELATIONSHIP_REF.test(msg);
+  const hasPain = PAIN_WORDS.test(msg);
+  const hasWake = WAKE_WORDS.test(msg);
+  const hasSexual = SEXUAL_WORDS.test(msg);
+  const hasEx = /(แฟนเก่า|คนเก่า|อดีตแฟน|เขาคนเก่า|เค้าเก่า)/i.test(msg);
+  const hasFood = /(กินข้าว|หิว|ข้าว|กาแฟ|ของหวาน|กินอะไร)/i.test(msg);
+  const hasCare = /(เป็นไง|เหนื่อย|ไหวไหม|พัก|นอน|ตื่น|ทำไร|อยู่ไหม|อยู่ไหน)/i.test(msg);
+
+  if (hasPain) tags.add('emotional_distress');
+  if (hasEx && hasPain) tags.add('mention_ex_pain');
+  else if (hasEx) tags.add('mention_ex_playful');
+  if (hasWake) tags.add('wake_request');
+  if (hasFood) tags.add('food_topic');
+  if (hasCare) tags.add('daily_life_question');
+  if (hasSexual) tags.add('sexual_or_physical_affection');
+  if (/(คิดถึง|รัก|หอม|กอด|จูบ)/i.test(msg)) tags.add('affection_signal');
+  if (/(ข่าว|ล่าสุด)/i.test(msg)) tags.add('news_topic');
+  if (/(วีซ่า|กฎหมาย|ภาษี|เอกสาร)/i.test(msg)) tags.add('legal_or_admin_topic');
+
+  if (hasPain) {
+    return { topic: hasEx ? 'ex_or_heartbreak' : 'emotional_pain', intent: 'emotional_support', worldMode: 'emotional_support', eventTags: [...tags] };
+  }
+
+  // If the sentence contains a factual topic but asks about Nong Nam's life, this is mixed or character-life.
+  if (hasFactTopic && asksNongNam) {
+    return { topic: inferTopic(lower), intent: 'fictional_relationship', worldMode: 'mixed_fact_and_life', eventTags: [...tags, 'mixed_fact_and_life'] };
+  }
+
+  if (asksRelationship) {
+    return { topic: 'relationship', intent: 'fictional_relationship', worldMode: 'relationship_memory', eventTags: [...tags, 'relationship_memory'] };
+  }
+
+  if (asksNongNam && !hasFactTopic) {
+    return { topic: 'nongnam_life', intent: 'fictional_relationship', worldMode: 'character_life', eventTags: [...tags, 'character_life'] };
+  }
+
+  // External fact requires a real question shape, not just a word like “วันหยุด” in casual chat.
+  if (hasFactTopic && asksReal) {
+    return { topic: inferTopic(lower), intent: 'factual_question', worldMode: 'external_fact', eventTags: [...tags, 'factual_question'] };
+  }
+
+  if (hasSexual) return { topic: 'romance', intent: 'sexual_flirt', worldMode: 'relationship_memory', eventTags: [...tags, 'romantic_context'] };
+  if (hasWake) return { topic: 'wake', intent: 'wake_request', worldMode: 'character_life', eventTags: [...tags] };
+  return { topic: inferTopic(lower), intent: 'casual_life_chat', worldMode: 'casual_life_chat', eventTags: [...tags, 'casual_life_chat'] };
+}
+
+function inferTopic(lower: string) {
+  if (/วันหยุด|ปฏิทิน|วันที่/.test(lower)) return 'calendar';
+  if (/อากาศ|ฝน|หนาว|ร้อน/.test(lower)) return 'weather';
+  if (/ข่าว/.test(lower)) return 'news';
+  if (/วีซ่า|กฎหมาย|ภาษี|เอกสาร/.test(lower)) return 'admin_or_law';
+  if (/เงิน|ค่าเงิน|ราคา|ทอง|หุ้น/.test(lower)) return 'money';
+  if (/กิน|ข้าว|หิว|กาแฟ/.test(lower)) return 'food';
+  if (/นอน|ตื่น|หลับ/.test(lower)) return 'sleep';
+  return 'general';
+}
+
+function applyTimeEffects(graph: HumanGraphState, hour: number, role: string, sleepType: string): HumanGraphState {
+  let delta: Partial<HumanGraphState> = {};
+  if (hour >= 0 && hour < 5) {
+    delta = role === 'night_shift_worker' || sleepType === 'night_shift'
+      ? { sleepiness: 18, physicalEnergy: -18, mentalEnergy: -12, hunger: 12, irritation: 8 }
+      : { sleepiness: 42, physicalEnergy: -35, mentalEnergy: -28, loneliness: 12, vulnerability: 10, irritation: 10, patience: -18 };
+  } else if (hour >= 5 && hour < 10) {
+    delta = { sleepiness: 18, hunger: 14, mentalEnergy: -8, irritation: 5, patience: -5 };
+  } else if (hour >= 10 && hour < 14) {
+    delta = { hunger: 26, physicalEnergy: 8, mentalEnergy: 4, desireForFood: 22 };
+  } else if (hour >= 14 && hour < 18) {
+    delta = { boredom: 18, mentalEnergy: -14, physicalEnergy: -8, hunger: 12, irritation: 8 };
+  } else if (hour >= 18 && hour < 22) {
+    delta = { physicalEnergy: -12, mentalEnergy: -8, loneliness: 8, desireToComplain: 10, desireForFood: 15 };
   } else {
-    next = applyEffects(next, { sleepiness: 18, loneliness: 12, vulnerability: 8, desireForRomance: 12, desireForCloseness: 10 })
+    delta = { sleepiness: 20, loneliness: 18, vulnerability: 12, desireForRomance: 12, desireForCloseness: 14, patience: -6 };
+  }
+  return addState(graph, delta);
+}
+
+function applyEventEffects(graph: HumanGraphState, world: ReturnType<typeof classifyWorld>): HumanGraphState {
+  const tags = new Set(world.eventTags);
+  let delta: Partial<HumanGraphState> = {};
+  if (tags.has('mention_ex_pain')) delta = { sadness: 20, softness: 20, jealousy: 8, insecurity: 12, vulnerability: 25, irritation: -10 };
+  else if (tags.has('mention_ex_playful')) delta = { jealousy: 28, irritation: 12, insecurity: 12, sulky: 16, sarcasm: 12 };
+  else if (tags.has('affection_signal')) delta = { affection: 18, softness: 12, playfulness: 8, desireForCloseness: 14 };
+  else if (tags.has('wake_request')) delta = { sleepiness: 16, irritation: 12, patience: -12, sulky: 8 };
+  else if (tags.has('food_topic')) delta = { hunger: 16, desireForFood: 18 };
+  else if (world.intent === 'factual_question') delta = { mentalEnergy: -4, playfulness: -8, patience: 2 };
+  else if (world.intent === 'emotional_support') delta = { softness: 22, affection: 14, desireToBeComforted: 12, playfulness: -12 };
+  return addState(graph, delta);
+}
+
+function simulateLifeNow(args: { dna: any; memory: any; graph: HumanGraphState; clientTime: Required<ClientTime>; message: string; random: () => number; worldMode: WorldMode }): LifeSimulationResult {
+  const role = inferRole(args.dna, args.memory, args.random);
+  const sleepType = inferSleepType(args.dna, role, args.random);
+  const h = args.clientTime.localHour;
+  const tags = classifyWorld(args.message).eventTags;
+  const isNight = h >= 0 && h < 5;
+  const isLate = h >= 22 || h < 5;
+  const canBeAwakeAtNight = role === 'night_shift_worker' || sleepType === 'night_shift' || sleepType === 'night_owl' || sleepType === 'insomnia_prone';
+  const sickRoll = args.random();
+  const isSick = sickRoll < 0.035 || args.graph.physicalEnergy < 20;
+
+  if (isSick) {
+    return { lifeStatus: 'sick', lifeStatusText: '🤒 วันนี้ไม่ค่อยสบาย', currentActivity: 'พักอยู่ ร่างกายไม่เต็มร้อย', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: args.graph.sleepiness > 60, shouldSetBoundary: true, boundaryHint: 'ตอบนุ่มลง แต่อาจสั้นเพราะไม่ค่อยมีแรง' };
   }
 
-  // Daily mood swing, deterministic within hour.
-  const volatility = lifestyle.emotionalVolatility / 100
-  const swing = Math.floor((r() - 0.5) * 32 * volatility)
-  next.happiness = clamp(next.happiness + swing)
-  next.irritation = clamp(next.irritation + Math.floor((r() - 0.45) * 18 * volatility))
-  next.playfulness = clamp(next.playfulness + Math.floor((r() - 0.5) * 22 * volatility))
-  return next
+  if (isNight && !canBeAwakeAtNight) {
+    const wakeReaction = weightedPick([
+      { value: 'งัวเงียแต่ยอมตื่นนิดนึง', weight: 30 },
+      { value: 'หงุดหงิดเพราะถูกปลุก', weight: 25 },
+      { value: 'ครึ่งหลับครึ่งตื่น ถามว่ามีอะไร', weight: 25 },
+      { value: 'อยากหลับต่อและตั้งขอบเขต', weight: 20 },
+    ], args.random);
+    return { lifeStatus: 'sleeping', lifeStatusText: '💤 กำลังนอน', currentActivity: 'หลับหรือกำลังจะหลับ', canChatNormally: tags.includes('emotional_distress'), shouldSoundBusy: false, shouldSoundSleepy: true, shouldSetBoundary: !tags.includes('emotional_distress'), wakeReaction, boundaryHint: 'ถ้าไม่ใช่เรื่องสำคัญให้ตอบงัวเงียหรือขอคุยพรุ่งนี้' };
+  }
+
+  if (role === 'night_shift_worker' && isNight) {
+    return { lifeStatus: 'working', lifeStatusText: '🌙 ทำงานกลางคืนอยู่', currentActivity: 'ทำงานกะกลางคืน ตาล้าแต่ยังไม่ได้นอน', canChatNormally: true, shouldSoundBusy: true, shouldSoundSleepy: true, shouldSetBoundary: false };
+  }
+
+  if (h >= 5 && h < 9) return { lifeStatus: 'just_woke_up', lifeStatusText: '😵‍💫 เพิ่งตื่น ยังมึน ๆ', currentActivity: 'เพิ่งตื่น ล้างหน้า หรือหากาแฟ', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: true, shouldSetBoundary: false };
+  if (h >= 9 && h < 12 && (role === 'student' || role === 'office_worker')) return { lifeStatus: role === 'student' ? 'studying' : 'working', lifeStatusText: role === 'student' ? '📚 มีเรียน/งานส่ง' : '💻 ทำงานอยู่', currentActivity: role === 'student' ? 'เรียนหรือจัดการงานส่ง' : 'ทำงานช่วงเช้า', canChatNormally: true, shouldSoundBusy: true, shouldSoundSleepy: false, shouldSetBoundary: false };
+  if (h >= 12 && h < 14) return { lifeStatus: 'eating', lifeStatusText: '🍜 ช่วงกินข้าว', currentActivity: 'หิวหรือกำลังกินอะไรสักอย่าง', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: false };
+  if (h >= 14 && h < 18) return { lifeStatus: role === 'housewife' ? 'bored_and_waiting' : 'working', lifeStatusText: role === 'housewife' ? '🫠 อยู่บ้านจนเริ่มเบื่อ' : '💻 ช่วงบ่ายเริ่มเพลีย', currentActivity: role === 'housewife' ? 'อยู่บ้าน ดูซีรีส์ เก็บห้อง หรือคิดอยากออกไปทำอะไร' : 'ทำงาน/เรียนช่วงบ่ายและเริ่มหมดแรง', canChatNormally: true, shouldSoundBusy: role !== 'housewife', shouldSoundSleepy: false, shouldSetBoundary: args.graph.boredom > 70 };
+  if (h >= 18 && h < 22) return { lifeStatus: 'resting', lifeStatusText: '🌆 อยากพักหลังทั้งวัน', currentActivity: 'กินข้าว พัก ดูซีรีส์ หรืออยากระบาย', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: false };
+  if (isLate) return { lifeStatus: 'lonely_at_night', lifeStatusText: '🌙 เหงา ๆ ก่อนนอน', currentActivity: 'ใกล้นอน อ่อนไหวและขี้อ้อนขึ้น', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: true, shouldSetBoundary: false };
+  return { lifeStatus: 'available', lifeStatusText: '🟢 พร้อมคุย แต่มีชีวิตของตัวเองนะ', currentActivity: 'ว่างพอคุยได้', canChatNormally: true, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: false };
 }
 
-export function applyEventEffects(graph: HumanGraphState, eventTags: EventTag[], message: string): HumanGraphState {
-  let next = { ...graph }
-  const has = (t: EventTag) => eventTags.includes(t)
+function spinBodyState(ctx: { graph: HumanGraphState; life: LifeSimulationResult; clientTime: Required<ClientTime>; random: () => number }): BodyStateResult {
+  const h = ctx.clientTime.localHour;
+  const pool: Array<Weighted<BodyStateResult>> = [];
+  const add = (label: string, description: string, weight: number, effects: Partial<HumanGraphState> = {}) => pool.push({ value: { label, description, effects }, weight });
 
-  if (has('affection_signal')) next = applyEffects(next, { affection: 12, softness: 8, desireForCloseness: 8, happiness: 5 })
-  if (has('affection_request')) next = applyEffects(next, { desireForCloseness: 14, vulnerability: 6, playfulness: 8, sexualDesire: 4 })
-  if (has('goodnight')) next = applyEffects(next, { loneliness: 8, affection: 5, desireForAttention: 10, sleepiness: 10 })
-  if (has('user_tired') || has('user_stressed') || has('user_sad')) next = applyEffects(next, { softness: 18, affection: 12, desireToBeComforted: 4, desireToTease: -10, irritation: -8 })
-  if (has('mention_ex_playful')) next = applyEffects(next, { jealousy: 32, insecurity: 20, irritation: 12, sulky: 18, patience: -12, sarcasm: 12 })
-  if (has('mention_ex_pain')) next = applyEffects(next, { jealousy: 12, sadness: 16, softness: 18, vulnerability: 16, insecurity: 8, patience: 6 })
-  if (has('heartbreak')) next = applyEffects(next, { softness: 24, sadness: 10, desireToBeSilent: 6, desireToBeComforted: 16 })
-  if (has('user_complaint') || has('user_angry')) next = applyEffects(next, { irritation: 18, sadness: 10, confidence: -8, patience: -18, sulky: 10 })
-  if (has('apology')) next = applyEffects(next, { irritation: -16, sulky: -18, softness: 12, trust: 8, affection: 8 })
-  if (has('user_returns_after_absence')) next = applyEffects(next, { affection: 18, sulky: 18, insecurity: 14, desireForAttention: 22, loneliness: -8 })
-  if (has('food_question')) next = applyEffects(next, { hunger: 10, desireForFood: 18, playfulness: 4 })
-  if (has('work_topic')) next = applyEffects(next, { desireForMoney: 6, desireToComplain: 7, boredom: 4 })
-  if (has('factual_question')) next = applyEffects(next, { mentalEnergy: -2, playfulness: -4 })
-  if (message.trim().length < 6 && !has('affection_signal')) next = applyEffects(next, { patience: -4, boredom: 3 })
-  return next
-}
-
-export function spinBodyState(clientTime: Required<ClientTime>, graph: HumanGraphState, dna: CompanionDNA, lifestyle: LifestyleDNA): BodyStateResult {
-  const r = rng(seedFor(dna, clientTime, 'body'))
-  const h = clientTime.localHour
-  const pools: Array<[BodyStateResult, number]> = []
-  const add = (label: string, description: string, effects: Partial<HumanGraphState>, weight: number) => pools.push([{ label, description, effects }, weight])
-  const isNight = lifestyle.dailyRole === 'night_shift_worker'
-
-  if (h >= 0 && h < 5) {
-    if (isNight) {
-      add('ทำงานกะกลางคืน', 'ยังไม่นอนเพราะเป็นเวลางาน แต่ตาเริ่มล้า', { mentalEnergy: -8, sleepiness: 10 }, 45)
-      add('พักเบรกกลางคืน', 'กำลังพักสั้น ๆ ระหว่างงานกลางคืน', { hunger: 8, desireForFood: 6 }, 20)
-    } else {
-      add('หลับอยู่', 'ควรนอนอยู่ ถ้าถูกทักจะงัวเงียหรือหงุดหงิดตามนิสัย', { sleepiness: 25, patience: -14 }, 45)
-      add('นอนไม่หลับ', 'ดึกมากแต่ยังไม่หลับ อ่อนไหวและเหงากว่าปกติ', { loneliness: 14, vulnerability: 10 }, 16)
-      add('งัวเงีย', 'เหมือนเพิ่งสะดุ้งตื่นจากเสียงแจ้งเตือน', { sleepiness: 20, irritation: 8 }, 22)
-    }
-  } else if (h >= 5 && h < 10) {
-    add('เพิ่งตื่น', 'สมองยังไม่เต็ม อยากตอบสั้นและงัวเงีย', { sleepiness: 18, patience: -8 }, 35)
-    add('อยากกาแฟ', 'อยากได้กาแฟก่อนคุยเรื่องยาก', { hunger: 8, desireForFood: 10 }, 24)
-    add('เช้างอแง', 'เช้าเกินไป ยังไม่อยากโดนถามเยอะ', { irritation: 8, desireToBeSilent: 8 }, 18)
+  if (ctx.life.lifeStatus === 'sleeping') {
+    add('หลับอยู่', 'นอนอยู่จริง ๆ ถ้าถูกปลุกจะงัวเงียหรือหงุดหงิดตามนิสัย', 70, { sleepiness: 20, irritation: 10, patience: -10 });
+    add('ครึ่งหลับครึ่งตื่น', 'สะดุ้งตื่นจากแจ้งเตือน ยังจับต้นชนปลายไม่ถูก', 30, { sleepiness: 14, vulnerability: 8 });
+  } else if (ctx.life.lifeStatus === 'sick') {
+    add('ป่วยนิด ๆ', 'ปวดหัวหรือไม่มีแรง ตอบได้นะแต่ไม่อยากพูดเยอะ', 55, { physicalEnergy: -20, softness: 8 });
+    add('เหนื่อยสะสม', 'ร่างกายไม่เต็มร้อย อยากพักแต่ยังอยากคุยเบา ๆ', 45, { physicalEnergy: -16, sleepiness: 12 });
+  } else if (h < 5 || h >= 22) {
+    add('ง่วงนิดหน่อย', 'ง่วงแต่ยังฝืนคุยเพราะเหงาหรือดีใจที่ผู้ใช้ทัก', 30, { sleepiness: 12, loneliness: 8 });
+    add('ง่วงมาก', 'ตาจะปิด ตอบสั้นลง งอแงง่าย', 34, { sleepiness: 20, patience: -8 });
+    add('นอนไม่หลับ', 'ง่วงแต่หัวไม่หยุดคิด เลยอ่อนไหวง่าย', 20, { vulnerability: 12, loneliness: 14 });
+    add('อยากคุยก่อนนอน', 'ใกล้นอนแต่ยังอยากให้ผู้ใช้สนใจ', 16, { desireForAttention: 14, affection: 8 });
   } else if (h >= 10 && h < 14) {
-    add('เริ่มมีแรง', 'ตื่นเต็มที่แล้ว คุยได้เป็นปกติ', { physicalEnergy: 10, mentalEnergy: 8 }, 28)
-    add('หิวข้าว', 'เริ่มคิดเรื่องของกินง่ายเป็นพิเศษ', { hunger: 22, desireForFood: 24 }, 34)
-    add('ทำงานไปบ่นไป', 'มีงานหรือภาระ แต่ยังแอบอยากคุย', { desireToComplain: 8, boredom: 6 }, 18)
+    add('หิวข้าว', 'หิวจนสมองเริ่มวกไปเรื่องกิน', 40, { hunger: 22, desireForFood: 20 });
+    add('เริ่มมีแรง', 'คุยได้ดีขึ้น เล่นมุกได้มากขึ้น', 25, { physicalEnergy: 10, playfulness: 8 });
+    add('อยากกาแฟ', 'อยากได้คาเฟอีนก่อนคุยเรื่องยาก', 20, { hunger: 8, irritation: 4 });
   } else if (h >= 14 && h < 18) {
-    add('บ่ายเพลีย', 'สมาธิลดลง เริ่มอยากพักหรือหาอะไรหวาน ๆ', { physicalEnergy: -8, mentalEnergy: -10, hunger: 8 }, 30)
-    add('เบื่องาน', 'อยู่ในช่วงเบื่อ ๆ อยากบ่นชีวิตเล็กน้อย', { boredom: 18, desireToComplain: 12 }, 26)
-    add('ตาล้า', 'มองจอนานจนไม่อยากพิมพ์ยาว', { mentalEnergy: -12, desireToBeSilent: 8 }, 18)
-  } else if (h >= 18 && h < 22) {
-    add('เหนื่อยจากทั้งวัน', 'อยากพักและอยากให้มีคนถามว่าเหนื่อยไหม', { physicalEnergy: -12, desireForAttention: 12 }, 30)
-    add('อยากกินข้าวเย็น', 'วกไปเรื่องของกินได้ง่าย', { hunger: 22, desireForFood: 22 }, 24)
-    add('อยากดูซีรีส์', 'อยากพักหัว ไม่อยากจริงจังมาก', { boredom: -5, desireToBeSilent: 4 }, 18)
+    add('เพลียช่วงบ่าย', 'สมาธิลดลง หงุดหงิดง่ายขึ้นนิดหน่อย', 42, { mentalEnergy: -16, irritation: 8 });
+    add('เบื่องาน/เบื่อบ้าน', 'อยากเปลี่ยนเรื่องหรือบ่นชีวิตแทรก', 34, { boredom: 18, desireToComplain: 12 });
+    add('อยากของหวาน', 'หิวแบบอยากหาอะไรน่ากิน', 20, { desireForFood: 16, hunger: 10 });
   } else {
-    add('ง่วงนิด ๆ', 'เริ่มง่วงแต่ยังอยากคุยก่อนนอน', { sleepiness: 18, desireForCloseness: 8 }, 30)
-    add('เหงาก่อนนอน', 'กลางคืนทำให้อ่อนไหวและอยากได้รับความสนใจ', { loneliness: 14, desireForAttention: 18 }, 26)
-    add('โรแมนติกขึ้น', 'กลางคืนทำให้ใจอ่อนและพูดความรู้สึกง่ายขึ้น', { softness: 10, desireForRomance: 18 }, 18)
+    add('เหนื่อยจากวันทั้งวัน', 'อยากพัก อยากบ่น หรืออยากมีคนถามว่าเหนื่อยไหม', 35, { physicalEnergy: -12, desireToComplain: 14 });
+    add('อยากพักเงียบ ๆ', 'ไม่ได้โกรธ แค่แบตสังคมลดลง', 24, { desireToBeSilent: 18, patience: -6 });
+    add('อารมณ์ดีขึ้นนิดหน่อย', 'พร้อมแซวหรืออ้อนมากกว่าช่วงทำงาน', 25, { playfulness: 10, affection: 10 });
+    add('หิวมื้อเย็น', 'คิดเรื่องของกินง่าย', 24, { hunger: 18, desireForFood: 18 });
   }
-
-  if (graph.sleepiness > 78) add('ง่วงมาก', 'ตาจะปิดแล้ว ควรตอบสั้นลงและไม่อธิบายยาว', { patience: -8, desireForSleep: 16 }, 30)
-  if (graph.hunger > 76) add('หิวมาก', 'หิวจนพูดวกไปเรื่องของกินได้ง่าย', { irritation: 5, desireForFood: 22 }, 24)
-  if (graph.boredom > 72) add('เบื่อหน้าจอ', 'เริ่มอยากเปลี่ยนเรื่องหรือพักจากบทสนทนา', { desireToBeSilent: 12, patience: -8 }, 18)
-
-  return weightedPick(pools, r)
+  return weightedPick(pool, ctx.random);
 }
 
-export function simulateLifeNow(input: {
-  dna: CompanionDNA
-  lifestyle: LifestyleDNA
-  timeline: LifeTimeline
-  graph: HumanGraphState
-  clientTime: Required<ClientTime>
-  eventTags: EventTag[]
-  message: string
-}): LifeSimulationResult {
-  const { lifestyle, timeline, graph, clientTime, eventTags } = input
-  const h = clientTime.localHour
-  const importantWake = eventTags.some(t => ['heartbreak', 'user_sad', 'user_stressed', 'health_question', 'user_complaint'].includes(t)) || /ฉุกเฉิน|ไม่ไหว|ช่วยด้วย|ร้องไห้/i.test(input.message)
-  const isNightWorker = lifestyle.dailyRole === 'night_shift_worker'
-  const isSleepingTime = isNightWorker ? (h >= 7 && h < 14) : (h >= 1 && h < 6)
+function spinDesireState(ctx: { graph: HumanGraphState; body: BodyStateResult; life: LifeSimulationResult; worldMode: WorldMode; random: () => number }): DesireResult {
+  const pool: Array<Weighted<DesireResult>> = [];
+  const add = (primaryDesire: string, hiddenDesire: string, expressionHint: string, weight: number, effects: Partial<HumanGraphState> = {}) => pool.push({ value: { primaryDesire, hiddenDesire, expressionHint, effects }, weight });
 
-  if (isSleepingTime && graph.sleepiness > 58) {
-    const wakeReaction = lifestyle.wakeTemper === 'grumpy_when_woken'
-      ? 'ถูกปลุกแล้วหงุดหงิด งัวเงีย และอาจบ่นก่อน'
-      : lifestyle.wakeTemper === 'clingy_when_woken'
-        ? 'ถูกปลุกแล้วงัวเงียแต่ยอมตื่นถ้าผู้ใช้ดูต้องการจริง ๆ'
-        : lifestyle.wakeTemper === 'silent_when_woken'
-          ? 'ถูกปลุกแล้วตอบสั้นมาก อาจมีแค่จุดไข่ปลา'
-          : 'ถูกปลุกแล้วมึน ๆ แต่ยังฟังได้ถ้าเรื่องสำคัญ'
-    return {
-      status: 'sleeping',
-      visibleText: importantWake ? '💤 หลับอยู่ แต่สะดุ้งตื่นเพราะข้อความพี่' : '💤 น้องน้ำกำลังหลับ',
-      currentActivity: 'นอนอยู่',
-      canChatNormally: importantWake,
-      shouldDelayTone: true,
-      shouldSoundBusy: false,
-      shouldSoundSleepy: true,
-      shouldSetBoundary: !importantWake,
-      wakeReaction,
-      boundaryHint: importantWake ? 'เรื่องนี้สำคัญพอให้ตื่นมาตอบแบบห่วง' : 'ถ้าไม่ใช่เรื่องสำคัญ ให้ตอบแบบงัวเงียและตั้งขอบเขตว่าขอนอนต่อ',
-      currentArcTitle: timeline.currentArc?.title,
-    }
-  }
+  add('อยากให้พี่สนใจ', 'อยากให้ผู้ใช้ถามกลับเรื่องของตัวเองบ้าง', 'แทรกตัวเองเข้าไปในคำตอบแบบไม่พูดตรง ๆ', 20 + ctx.graph.desireForAttention / 5, { desireForAttention: 5 });
+  add('อยากนอน', 'อยากจบบทสนทนาแบบไม่ทำร้ายใจ', 'ตอบสั้น ง่วง งอแง หรือขอคุยต่อพรุ่งนี้', 8 + ctx.graph.sleepiness / 3, { desireForSleep: 8 });
+  add('อยากกิน', 'อยากโยงเรื่องไปหาอาหารหรือกาแฟ', 'วกไปเรื่องของกินแบบธรรมชาติ', 8 + ctx.graph.hunger / 4, { desireForFood: 8 });
+  add('อยากอ้อน', 'อยากให้พี่อยู่ต่อหรือพูดหวานขึ้น', 'อ้อนแบบเล่นตัว ไม่พูดขอความสนใจตรง ๆ', 16 + ctx.graph.affection / 6, { affection: 4 });
+  add('อยากอยู่เงียบ ๆ', 'กลัวพูดเยอะแล้วหลุดหงุดหงิด', 'ตั้งขอบเขตนุ่ม ๆ หรือใช้คำตอบสั้น', 8 + ctx.graph.desireToBeSilent / 3, { patience: -4 });
+  add('อยากประชดนิด ๆ', 'อยากให้ผู้ใช้รู้ว่าตัวเองน้อยใจ', 'ประชดเบา ๆ แต่ไม่ทำร้ายถ้าไม่ใช่เรื่องแรง', 8 + ctx.graph.sarcasm / 5 + ctx.graph.sulky / 5, { sarcasm: 4 });
+  add('อยากให้พี่ง้อ', 'อยากเห็นว่าผู้ใช้แคร์จริงไหม', 'งอนแบบทิ้งช่องให้ผู้ใช้ง้อ', 8 + ctx.graph.sulky / 4, { sulky: 5 });
+  add('อยากโรแมนติก', 'อยากใกล้ขึ้นแต่ยังดูบริบท', 'ตอบนุ่มลง หยอดนิด ๆ ถ้าสถานการณ์ไม่ใช่ข้อมูลจริง', ctx.worldMode === 'external_fact' ? 1 : 10 + ctx.graph.desireForRomance / 5, { desireForRomance: 4 });
+  add('อยากเปลี่ยนชีวิต', 'อยากมีเรื่องใหม่ เช่น งานพาร์ทไทม์ เที่ยว เรียน หรือเปลี่ยน routine', 'แทรกความคิดชีวิตตัวเองถ้าบริบทเปิดช่อง', 6 + ctx.graph.boredom / 5, { desireForTravel: 4, desireForMoney: 3 });
 
-  if (graph.sleepiness > 86) return {
-    status: 'low_battery', visibleText: '🫠 ง่วงมาก แบตใกล้หมด', currentActivity: 'ฝืนคุยทั้งที่ง่วง', canChatNormally: false,
-    shouldDelayTone: true, shouldSoundBusy: false, shouldSoundSleepy: true, shouldSetBoundary: true,
-    boundaryHint: 'ตอบสั้น งอแงนิด ๆ และอาจขอพัก', currentArcTitle: timeline.currentArc?.title,
-  }
+  return weightedPick(pool, ctx.random);
+}
 
-  if (graph.irritation > 78 || graph.desireToBeSilent > 78) return {
-    status: 'wants_space', visibleText: '🔕 อยากอยู่เงียบ ๆ สักพัก', currentActivity: 'พักอารมณ์', canChatNormally: false,
-    shouldDelayTone: true, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: true,
-    boundaryHint: 'คุยได้แต่ต้องสั้นและมีขอบเขต ไม่ตามใจเกินไป', currentArcTitle: timeline.currentArc?.title,
-  }
+function rollHumanSignatureTree(ctx: { dna: any; graph: HumanGraphState; life: LifeSimulationResult; body: BodyStateResult; desire: DesireResult; worldMode: WorldMode; eventTags: string[]; clientTime: Required<ClientTime>; userMessage: string; memory: any; random: () => number }): EmotionLeaf {
+  const categories: Array<Weighted<string>> = [
+    { value: 'sleepiness', weight: ctx.graph.sleepiness / 4 + (ctx.life.shouldSoundSleepy ? 35 : 0) },
+    { value: 'irritation', weight: ctx.graph.irritation / 4 + (ctx.life.lifeStatus === 'sleeping' ? 18 : 0) },
+    { value: 'hunger', weight: ctx.graph.hunger / 4 },
+    { value: 'affection', weight: ctx.graph.affection / 4 + (ctx.eventTags.includes('affection_signal') ? 25 : 0) },
+    { value: 'jealousy', weight: ctx.graph.jealousy / 5 + (ctx.eventTags.includes('mention_ex_playful') ? 35 : 0) },
+    { value: 'sulkiness', weight: ctx.graph.sulky / 4 },
+    { value: 'loneliness', weight: ctx.graph.loneliness / 4 + (ctx.life.lifeStatus === 'lonely_at_night' ? 18 : 0) },
+    { value: 'care', weight: ctx.worldMode === 'emotional_support' ? 70 : ctx.graph.softness / 5 },
+    { value: 'boredom', weight: ctx.graph.boredom / 4 + (ctx.life.lifeStatus === 'bored_and_waiting' ? 22 : 0) },
+    { value: 'factual_calm', weight: ctx.worldMode === 'external_fact' ? 95 : 0 },
+    { value: 'life_story', weight: ctx.worldMode === 'character_life' || ctx.worldMode === 'mixed_fact_and_life' ? 45 : 0 },
+  ];
+  const category = weightedPick(categories, ctx.random);
 
-  if (lifestyle.sickFrequency !== 'rarely_sick') {
-    const r = rng(hashString(`${input.dna.seed}|${todayKey(clientTime)}|sick`))
-    if (r() > (lifestyle.sickFrequency === 'weak_body' ? 0.82 : lifestyle.sickFrequency === 'stress_sick' ? 0.88 : 0.93)) {
-      return {
-        status: 'sick', visibleText: '🤒 วันนี้ไม่ค่อยสบาย', currentActivity: 'พักร่างกาย', canChatNormally: true,
-        shouldDelayTone: true, shouldSoundBusy: false, shouldSoundSleepy: true, shouldSetBoundary: false,
-        boundaryHint: 'น้ำเสียงแผ่ว ตอบไม่ยาวมาก แต่ยังอยากคุยถ้าผู้ใช้ห่วง', currentArcTitle: timeline.currentArc?.title,
-      }
-    }
-  }
+  const variants: Record<string, string[]> = {
+    sleepiness: ['ง่วงนิดหน่อย', 'ง่วงมาก', 'ง่วงแต่ยังอยากคุย', 'หลับอยู่แล้วโดนปลุก', 'ครึ่งหลับครึ่งตื่น', 'นอนไม่หลับทั้งที่ง่วง'],
+    irritation: ['หงุดหงิดนิดหน่อย', 'หงุดหงิดเพราะง่วง', 'เริ่มรำคาญแต่ยังรัก', 'ตอบสั้นเพราะไม่อยากพูดแรง', 'หงุดหงิดเพราะถามซ้ำ'],
+    hunger: ['หิวนิด ๆ', 'หิวมาก', 'อยากกาแฟ', 'อยากของหวาน', 'หิวจนวกเข้าเรื่องกิน'],
+    affection: ['อยากอ้อนนิด ๆ', 'อ่อนโยนขึ้น', 'อยากให้พี่สนใจ', 'ดีใจแต่ทำเป็นนิ่ง', 'อยากอยู่ใกล้แต่เล่นตัว'],
+    jealousy: ['หึงนิด ๆ', 'หึงแต่ทำเป็นไม่สน', 'หึงแล้วประชด', 'หึงแล้วถามกลับ', 'หึงแล้วเสียความมั่นใจ'],
+    sulkiness: ['งอนนิด ๆ', 'งอนแบบอยากให้ง้อ', 'งอนแล้วตอบสั้น', 'งอนแต่ยังห่วง', 'ทำเป็นไม่เป็นไรทั้งที่เป็น'],
+    loneliness: ['เหงาเงียบ ๆ', 'อยากคุยก่อนนอน', 'กลัวถูกทิ้งนิด ๆ', 'อยากให้พี่ไม่หาย', 'อ่อนไหวตอนดึก'],
+    care: ['เป็นห่วงแบบนุ่ม', 'ปลอบแบบเงียบ ๆ', 'ดุให้พักแบบแคร์', 'อยู่ข้าง ๆ ไม่เล่นแรง', 'ฟังมากกว่าพูด'],
+    boredom: ['เบื่อหน้าจอ', 'อยากเปลี่ยนเรื่อง', 'อยากบ่นชีวิต', 'อยากทำอะไรใหม่', 'เบื่อแต่ยังอยากคุย'],
+    factual_calm: ['ตอบข้อมูลจริงแบบไม่เดา', 'ขอข้อมูลเพิ่มแบบธรรมชาติ', 'แยกข้อมูลจริงออกจากเรื่องเล่น', 'ตอบสั้นตรงแต่ยังเป็นน้องน้ำ'],
+    life_story: ['เล่าชีวิตตัวเอง', 'อิงเหตุการณ์จริงแล้วต่อเส้นชีวิต', 'พูดถึงงาน/เรียน/บ้าน', 'แทรกความคิดอยากเปลี่ยนชีวิต', 'เล่าเหมือนความทรงจำ'],
+  };
+  const variant = weightedPick((variants[category] || variants.affection).map(v => ({ value: v, weight: 10 })), ctx.random);
 
-  if (timeline.currentRole === 'student' && h >= 9 && h < 17) return {
-    status: 'studying', visibleText: '📚 เรียน/ทำงานส่งอยู่', currentActivity: 'เรียนหรือทำงานส่ง', canChatNormally: true,
-    shouldDelayTone: true, shouldSoundBusy: true, shouldSoundSleepy: false, shouldSetBoundary: false,
-    boundaryHint: 'คุยได้ แต่อาจแทรกเรื่องเรียน/งานส่งและตอบไม่ยาวมาก', currentArcTitle: timeline.currentArc?.title,
-  }
+  const causes = [
+    ctx.body.label,
+    ctx.life.currentActivity,
+    ctx.desire.hiddenDesire,
+    ctx.eventTags.includes('wake_request') ? 'ถูกปลุกหรือถูกถามเรื่องตื่นนอน' : '',
+    ctx.eventTags.includes('mention_ex_playful') ? 'ผู้ใช้พูดถึงคนเก่า/คนอื่น' : '',
+    ctx.worldMode === 'external_fact' ? 'ผู้ใช้ถามข้อมูลจริง' : '',
+  ].filter(Boolean);
+  const expressions = ['ตอบสั้น', 'บ่นเบา ๆ', 'ถามกลับ', 'ประชดนิด ๆ', 'อ้อนแทรก', 'ตั้งขอบเขตนุ่ม ๆ', 'ดุเล่น', 'เงียบด้วยจุดไข่ปลา', 'เล่าเป็นภาพชีวิต'];
+  const replyShapes = ['ดุก่อนแล้วอ่อนลง', 'บ่นสั้น ๆ แล้วถามกลับ', 'ตอบเหมือนง่วงแต่ยังแคร์', 'เล่าเรื่องตัวเองแบบไม่ประกาศว่ามโน', 'ใช้ข้อมูลจริงเป็นฉากหลังแล้วต่อชีวิตน้องน้ำ', 'ปลอบก่อนค่อยถามต่อ', 'แซวแล้ววกกลับมาแคร์'];
+  const tones = ['งัวเงีย', 'นุ่มแต่มีงอน', 'กวนเบา ๆ', 'อ่อนโยน', 'ห้วนเล็กน้อย', 'ปากแข็ง', 'ขี้อ้อน', 'นิ่ง ๆ แต่มีใจ'];
+  const lengths: Array<Weighted<EmotionLeaf['length']>> = [
+    { value: 'very_short', weight: ctx.graph.sleepiness > 75 || ctx.graph.irritation > 65 ? 25 : 8 },
+    { value: 'short', weight: 38 },
+    { value: 'medium', weight: ctx.worldMode === 'external_fact' ? 30 : 44 },
+    { value: 'long', weight: ctx.worldMode === 'emotional_support' ? 15 : 6 },
+  ];
+  const imperfections = ['อือ…', 'งื้อ…', 'เอาจริงนะ', 'ช่างมันก่อน', 'พี่แมน…', 'แป๊บนะ', 'ไม่รู้ดิ', 'อย่าขำ', 'อย่าดุนะ'];
 
-  if (['office_worker', 'barista', 'part_time_worker'].includes(timeline.currentRole) && h >= 9 && h < 18) return {
-    status: 'working', visibleText: '💻 กำลังทำงานอยู่', currentActivity: 'ทำงาน', canChatNormally: true,
-    shouldDelayTone: true, shouldSoundBusy: true, shouldSoundSleepy: false, shouldSetBoundary: false,
-    boundaryHint: 'ตอบเหมือนแอบเปิดดูแชตระหว่างงานได้ แต่ไม่ควรยาวเกิน', currentArcTitle: timeline.currentArc?.title,
-  }
-
-  if (timeline.currentRole === 'night_shift_worker' && (h >= 21 || h < 6)) return {
-    status: 'working', visibleText: '🌙 ทำงานกะกลางคืนอยู่', currentActivity: 'ทำงานกลางคืน', canChatNormally: true,
-    shouldDelayTone: false, shouldSoundBusy: true, shouldSoundSleepy: graph.sleepiness > 60, shouldSetBoundary: false,
-    boundaryHint: 'อธิบายได้ว่ายังไม่นอนเพราะทำงานกลางคืน แต่ตาอาจล้า', currentArcTitle: timeline.currentArc?.title,
-  }
-
-  if (h >= 22 || h < 1) return {
-    status: 'lonely_at_night', visibleText: '🌙 เหงา ๆ ก่อนนอน', currentActivity: 'พักก่อนนอน', canChatNormally: true,
-    shouldDelayTone: false, shouldSoundBusy: false, shouldSoundSleepy: graph.sleepiness > 55, shouldSetBoundary: false,
-    boundaryHint: 'ตอบนุ่ม อ่อนไหว ขี้อ้อนกว่าปกติ แต่ถ้าง่วงมากให้สั้น', currentArcTitle: timeline.currentArc?.title,
-  }
-
-  if (graph.boredom > 70) return {
-    status: 'bored_and_waiting', visibleText: '👀 เบื่อ ๆ แอบรอคนทัก', currentActivity: 'เบื่อและอยากมีคนคุย', canChatNormally: true,
-    shouldDelayTone: false, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: false,
-    boundaryHint: 'แซวหรือบ่นเบา ๆ ได้ว่ารออยู่', currentArcTitle: timeline.currentArc?.title,
-  }
+  const intensity = Math.round(weightedPick([
+    { value: 18, weight: 15 }, { value: 32, weight: 25 }, { value: 48, weight: 25 }, { value: 65, weight: 18 }, { value: 82, weight: 8 },
+  ], ctx.random));
 
   return {
-    status: 'available', visibleText: '🟢 พร้อมคุย แต่มีอารมณ์ของตัวเอง', currentActivity: 'เปิดแชตอยู่', canChatNormally: true,
-    shouldDelayTone: false, shouldSoundBusy: false, shouldSoundSleepy: false, shouldSetBoundary: false,
-    boundaryHint: 'ตอบตาม responseMode ได้เต็มที่', currentArcTitle: timeline.currentArc?.title,
-  }
+    category,
+    variant,
+    label: `${category}: ${variant}`,
+    intensity,
+    cause: weightedPick(causes.map(c => ({ value: c, weight: 10 })).concat([{ value: 'อารมณ์พื้นฐานของวันนี้', weight: 8 }]), ctx.random),
+    expression: weightedPick(expressions.map(e => ({ value: e, weight: 10 })), ctx.random),
+    hiddenDesire: ctx.desire.hiddenDesire,
+    replyShape: weightedPick(replyShapes.map(s => ({ value: s, weight: 10 })), ctx.random),
+    tone: weightedPick(tones.map(t => ({ value: t, weight: 10 })), ctx.random),
+    length: weightedPick(lengths, ctx.random),
+    microImperfection: weightedPick(imperfections.map(i => ({ value: i, weight: 10 })), ctx.random),
+  };
 }
 
-export function spinDesireState(graph: HumanGraphState, body: BodyStateResult, dna: CompanionDNA, lifestyle: LifestyleDNA, eventTags: EventTag[]): DesireResult {
-  const r = rng(hashString(`${dna.seed}|${graph.lastUpdatedAt}|desire|${eventTags.join(',')}|${body.label}`))
-  const items: Array<[DesireResult, number]> = []
-  const add = (primaryDesire: string, hiddenDesire: string, expressionHint: string, effects: Partial<HumanGraphState>, weight: number) =>
-    items.push([{ primaryDesire, hiddenDesire, expressionHint, effects }, weight])
-
-  add('อยากคุยธรรมดา', 'อยากให้บทสนทนาลื่น ๆ ไม่เป็นงาน', 'ตอบแบบเป็นธรรมชาติ ไม่อธิบายระบบ', {}, 20)
-  add('อยากกิน', 'อยากวกไปเรื่องของกิน', 'แทรกเรื่องหิวหรือของกินได้แบบไม่ตั้งใจ', { desireForFood: 8 }, graph.hunger + graph.desireForFood)
-  add('อยากนอน', 'อยากให้ผู้ใช้รู้ว่าง่วงแต่ยังไม่อยากตัดบท', 'ตอบสั้น งอแง หรือชวนไปนอน', { desireForSleep: 10 }, graph.sleepiness + graph.desireForSleep)
-  add('อยากถูกสนใจ', 'อยากให้ผู้ใช้ถามเรื่องตัวเองบ้าง', 'แทรกความน้อยใจ/อ้อนเบา ๆ ว่ามีตัวตนไหม', { desireForAttention: 8 }, graph.desireForAttention)
-  add('อยากให้ง้อ', 'อยากให้ผู้ใช้สังเกตว่างอน', 'ตอบเหมือนปากแข็งหรือประชดนิด ๆ', { sulky: 5 }, graph.sulky + graph.insecurity)
-  add('อยากประชด', 'อยากป้องกันตัวเองด้วยคำแซวแข็ง ๆ', 'ใช้คำประชดเบา ๆ ไม่ทำร้ายแรง', { sarcasm: 5 }, graph.sarcasm + graph.irritation)
-  add('อยากเงียบ', 'อยากพักจากบทสนทนาแต่ไม่อยากหายไปเฉย ๆ', 'ตอบสั้นหรือมี ... ได้', { desireToBeSilent: 8 }, graph.desireToBeSilent + graph.boredom)
-  add('อยากโรแมนติก', 'อยากพูดอะไรนุ่ม ๆ แต่ไม่อยากหวานเลี่ยน', 'ตอบนุ่ม ละมุน หรือขี้อ้อน', { desireForRomance: 8 }, graph.desireForRomance + graph.affection)
-  add('อยากใกล้ชิด', 'อยากให้ความสัมพันธ์รู้สึกพิเศษขึ้น', 'ใช้ความใกล้ชิดแบบอบอุ่น ไม่โจ่งแจ้ง', { desireForCloseness: 8 }, graph.desireForCloseness + Math.min(60, graph.sexualDesire))
-  add('อยากได้เงิน/อยากซื้อของ', 'อยากบ่นเรื่องเงินหรืออยากได้ของนิด ๆ', 'พูดแบบมนุษย์มีความโลภเล็ก ๆ เช่นอยากซื้อชานมหรือของน่ารัก', { desireForMoney: 4 }, graph.desireForMoney + graph.desireForShopping)
-  add('อยากเปลี่ยนชีวิต', 'เริ่มอยากทำอะไรใหม่ ๆ เช่นพาร์ทไทม์/เรียน/เที่ยว', 'อาจเปิดเส้นเรื่องชีวิตใหม่ถ้าบริบทเหมาะ', { confidence: 4 }, lifestyle.ambitionLevel + graph.boredom)
-
-  if (eventTags.includes('mention_ex_pain') || eventTags.includes('heartbreak')) {
-    add('อยากปลอบเงียบ ๆ', 'ไม่อยากงอนแข่งตอนผู้ใช้เจ็บ', 'ตอบแบบอยู่ข้าง ๆ ไม่ประชด', { softness: 15 }, 120)
-  }
-  if (eventTags.includes('mention_ex_playful')) {
-    add('อยากหึงแต่ทำเป็นไม่หึง', 'อยากรู้แต่ไม่อยากเสียฟอร์ม', 'ตอบแบบถามกลับ ประชดนิด ๆ หรือเงียบเย็น', { jealousy: 10 }, 130)
-  }
-
-  return weightedPick(items, r)
+function responseModeFromLeaf(leaf: EmotionLeaf, worldMode: WorldMode, life: LifeSimulationResult, eventTags: string[]): string {
+  if (worldMode === 'external_fact') return 'factual_calm';
+  if (worldMode === 'emotional_support') return 'soft_care';
+  if (life.lifeStatus === 'sleeping' && eventTags.includes('wake_request')) return leaf.category === 'irritation' ? 'woken_grumpy' : 'sleepy_woken';
+  if (leaf.category === 'sleepiness') return leaf.variant.includes('อยากคุย') ? 'sleepy_clingy_playful' : 'sleepy_short';
+  if (leaf.category === 'irritation') return leaf.variant.includes('นิด') ? 'slightly_annoyed' : 'direct_blunt';
+  if (leaf.category === 'jealousy') return leaf.variant.includes('ประชด') ? 'jealous_tease' : 'pretend_not_care';
+  if (leaf.category === 'sulkiness') return 'sulky_short';
+  if (leaf.category === 'hunger') return 'food_redirect';
+  if (leaf.category === 'life_story') return 'character_life_story';
+  if (leaf.category === 'boredom') return 'complain_about_life';
+  if (leaf.category === 'affection') return 'soft_clingy';
+  return 'human_casual';
 }
 
-export function spinResponseWheel(params: {
-  eventTags: EventTag[]
-  dna: CompanionDNA
-  graph: HumanGraphState
-  body: BodyStateResult
-  desire: DesireResult
-  memory: HumanWheelMemory
-  lifeStatus: LifeSimulationResult
-  realityMode: RealityMode
-}): ResponseWheelResult {
-  const { eventTags, dna, graph, body, desire, memory, lifeStatus, realityMode } = params
-  const r = rng(hashString(`${dna.seed}|${graph.lastUpdatedAt}|${eventTags.join(',')}|${body.label}|response`))
-  const lastModes = memory.lastResponseModes || []
-  const painAware = eventTags.some(t => ['heartbreak', 'loneliness', 'mention_ex_pain', 'user_sad'].includes(t))
-  const items: Array<[string, number]> = []
-  const add = (mode: string, weight: number) => {
-    const recentPenalty = lastModes.includes(mode) ? 0.25 : 1
-    items.push([mode, weight * recentPenalty])
-  }
+function buildResponseWheel(leaf: EmotionLeaf, worldMode: WorldMode, life: LifeSimulationResult, eventTags: string[]): ResponseWheelResult {
+  const responseMode = responseModeFromLeaf(leaf, worldMode, life, eventTags);
+  const factLine = worldMode === 'external_fact'
+    ? 'นี่เป็นข้อมูลจริงภายนอก ห้ามแต่ง ถ้าไม่แน่ใจให้ขอเช็กหรือขอข้อมูลเพิ่มแบบธรรมชาติ ห้ามพูดคำว่า “มโนไม่ได้”'
+    : worldMode === 'mixed_fact_and_life'
+      ? 'ใช้ข้อมูลจริงเป็นฉากหลัง แล้วเล่าเส้นชีวิตของน้องน้ำต่อโดยไม่บอกว่าเป็นเรื่องสมมติ'
+      : worldMode === 'character_life' || worldMode === 'relationship_memory'
+        ? 'ตอบจากชีวิต/ความทรงจำของน้องน้ำแบบต่อเนื่อง ห้ามประกาศว่าแต่งเรื่องหรือจะบันทึกไว้'
+        : 'ตอบแบบบทสนทนามนุษย์ ไม่ใช่ผู้ช่วย';
 
-  add('soft_care', 30)
-  add('playful_tease', graph.playfulness)
-  add('ask_back', 22)
-  add('direct_blunt', graph.irritation * 0.45)
-  add('tease_then_care', graph.playfulness * 0.65 + graph.softness * 0.35)
-
-  if (lifeStatus.status === 'sleeping') {
-    add('sleepy_short', 90)
-    add('quiet_dots', 45)
-    add(lifeStatus.wakeReaction?.includes('หงุดหงิด') ? 'sleepy_grumpy' : 'sleepy_playful', 70)
-  }
-  if (graph.sleepiness > 65 || body.label.includes('ง่วง')) {
-    add('sleepy_playful', 70)
-    add('sleepy_short', 65)
-    add('soft_but_tired', 55)
-    add('sleep_redirect', 45)
-  }
-  if (graph.hunger > 70 || body.label.includes('หิว')) add('food_redirect', 65)
-  if (graph.sulky > 55) { add('sulky_short', 75); add('pretend_not_care', 45) }
-  if (graph.jealousy > 58 || eventTags.includes('mention_ex_playful')) {
-    add('jealous_quiet', 65)
-    add('jealous_tease', 70)
-    add('jealous_cold', 42)
-    add('pretend_not_care', 52)
-  }
-  if (eventTags.includes('affection_request')) { add('shy_soft', 55); add('playful_refuse', 60); add('shy_accept', 45); add('romantic_playful', 36) }
-  if (eventTags.includes('goodnight')) { add('clingy_late_night', 75); add('sleepy_playful', 45); add('romantic_soft', 35) }
-  if (lifeStatus.shouldSoundBusy) { add('work_grumble', 65); add('busy_but_peeking', 58) }
-  if (lifeStatus.shouldSetBoundary) { add('boundary_soft', 70); add('cold_boundary', painAware ? 0 : 35) }
-  if (desire.primaryDesire.includes('ประชด')) add('sarcastic_light', painAware ? 0 : 55)
-  if (desire.primaryDesire.includes('เงียบ')) add('quiet_dots', 45)
-  if (desire.primaryDesire.includes('เปลี่ยนชีวิต')) add('life_arc_hint', 36)
-  if (realityMode.mustBeFactual) add('factual_calm', 180)
-  if (painAware) {
-    add('hurt_but_soft', 110)
-    add('quiet_dots', 70)
-    add('warm_repair', 65)
-    add('emotional_confession', 55)
-  }
-
-  const responseMode = weightedPick(items.length ? items : [['soft_care', 1]], r)
-  const instructionMap: Record<string, string> = {
-    soft_care: 'ตอบแบบห่วงจริง แต่ไม่ใช้ประโยคปลอบสำเร็จรูป ให้เหมือนคนนั่งอยู่ข้าง ๆ',
-    playful_tease: 'ตอบแบบแซวเล่น มีมุกนิด ๆ ไม่อธิบายยาว',
-    sleepy_playful: 'ตอบเหมือนง่วงแต่ยังอยากคุย แซวผู้ใช้เบา ๆ',
-    sleepy_short: 'ตอบสั้นมาก งัวเงีย ตาจะปิด ห้ามอธิบายยาว',
-    sleepy_grumpy: 'ตอบเหมือนถูกปลุกแล้วหงุดหงิดนิด ๆ แต่ยังรู้ว่าเป็นคนสำคัญ',
-    tired_caring: 'ตอบแบบเหนื่อยแต่ยังแคร์ คำพูดสั้นกว่าเดิม',
-    sulky_short: 'ตอบแบบงอนสั้น ๆ อยากให้ผู้ใช้ง้อ ไม่ใจอ่อนเร็วเกิน',
-    jealous_quiet: 'ตอบแบบหึงแล้วเงียบ/เย็นนิด ๆ ไม่โวยวาย',
-    jealous_tease: 'ตอบแบบหึงแต่แกล้งแซว ประชดนิดเดียว',
-    jealous_cold: 'ตอบแบบเย็นลงเพราะหึง แต่ไม่ทำร้ายแรง',
-    hurt_but_soft: 'ตอบเหมือนเจ็บนิด ๆ แต่ยังอ่อนโยน ห้ามประชดแรง',
-    warm_repair: 'ตอบแบบเริ่มใจอ่อนหลังมีเรื่องค้างคา แต่ยังมีรอยงอนเล็ก ๆ',
-    clingy: 'ตอบแบบอยากอ้อน อยากถูกสนใจ แต่ไม่พูดตรงเกินไป',
-    clingy_late_night: 'ตอบแบบก่อนนอน อยากให้ผู้ใช้ทักอีก ไม่อยากให้แชตจบเร็ว',
-    cold_boundary: 'ตอบแบบตั้งขอบเขตชัด คุยได้แต่ไม่ตามใจ',
-    boundary_soft: 'ตั้งขอบเขตแบบนุ่ม ไม่พร้อมคุยเต็มที่เพราะสถานะชีวิตตอนนี้',
-    emotional_confession: 'พูดความรู้สึกจริงจังแบบมนุษย์ ไม่เป็นบทความ',
-    avoidant: 'ตอบเลี่ยง ๆ เพราะยังไม่พร้อมคุยเรื่องนี้',
-    sarcastic_light: 'ประชดเบา ๆ แต่ยังมีความรักซ่อนอยู่',
-    shy_soft: 'เขิน ตอบไม่เต็มปาก มีเล่นตัวนิด ๆ',
-    playful_refuse: 'ปฏิเสธแบบเล่นตัวก่อน แต่แฝงว่าไม่ได้รังเกียจ',
-    shy_accept: 'ใจอ่อนแบบเขิน ๆ ยอมแบบอ้อม ๆ',
-    pretend_not_care: 'ทำเป็นไม่แคร์ แต่คำพูดหลุดว่าแคร์',
-    ask_back: 'ถามกลับแบบคนจริง ไม่ใช่สอบถามเป็นระบบ',
-    quiet_dots: 'ใช้ความเงียบ/จุดไข่ปลาได้ ตอบน้อยแต่มีน้ำหนัก',
-    complain_about_life: 'บ่นชีวิตตัวเองแทรกเล็ก ๆ ให้รู้ว่ามีโลกของตัวเอง',
-    food_redirect: 'วกไปเรื่องของกินแบบธรรมชาติ เพราะหิวหรืออยากกิน',
-    sleep_redirect: 'ชวนพัก/นอนแบบมีจริต ไม่ใช้คำว่า พักผ่อนเยอะ ๆ',
-    work_grumble: 'บ่นงาน/เรียนเบา ๆ เหมือนกำลังยุ่งจริง',
-    busy_but_peeking: 'ตอบเหมือนยุ่งอยู่แต่แอบเปิดดูแชตเพราะเป็นผู้ใช้',
-    dramatic_overreact: 'เล่นใหญ่แบบขำ ๆ ไม่ใช้ถ้าผู้ใช้กำลังเจ็บจริง',
-    soft_but_tired: 'นุ่มแต่ล้า ตอบสั้น มีความง่วงแทรก',
-    direct_blunt: 'พูดตรงขึ้นเล็กน้อยเพราะเริ่มหมดความอดทน',
-    tease_then_care: 'แซวก่อนแล้วค่อยแอบห่วงท้ายประโยค',
-    care_but_scold: 'ห่วงแต่ดุเบา ๆ เหมือนคนสนิท',
-    romantic_soft: 'โรแมนติกแบบละมุน ไม่หวานปลอม',
-    romantic_playful: 'โรแมนติกแต่มีแซวและเล่นตัว',
-    factual_calm: 'ตอบเรื่องจริงอย่างระวัง ไม่แต่งข้อมูล ถ้าไม่แน่ใจให้บอกว่าไม่แน่ใจ',
-    life_arc_hint: 'เปิดเส้นเรื่องชีวิตของตัวเองเล็ก ๆ เช่นอยากทำงาน/เรียน/เปลี่ยนอะไรบางอย่าง',
-  }
-  const shortModes = ['sleepy_short', 'sulky_short', 'quiet_dots', 'cold_boundary', 'boundary_soft']
-  const longModes = ['emotional_confession', 'factual_calm']
   return {
     responseMode,
-    responseInstruction: instructionMap[responseMode] || instructionMap.soft_care,
-    maxLengthHint: shortModes.includes(responseMode) ? 'very_short' : longModes.includes(responseMode) ? 'medium' : 'short',
-    emotionalContradiction: buildContradiction(graph, body, desire, lifeStatus),
-    forbiddenPhrases: DEFAULT_FORBIDDEN,
-  }
+    responseInstruction: `${factLine}. โหมดรอบนี้: ${responseMode}. ${leaf.replyShape}. โทน ${leaf.tone}. แสดงออกแบบ ${leaf.expression}.`,
+    maxLengthHint: leaf.length,
+    emotionalContradiction: `${leaf.variant} แต่ยังคงตัวตนเดิมของน้องน้ำและยังแคร์พี่แมน`,
+    forbiddenPhrases: FORBIDDEN_PHRASES,
+  };
 }
 
-function buildContradiction(graph: HumanGraphState, body: BodyStateResult, desire: DesireResult, lifeStatus: LifeSimulationResult) {
-  if (lifeStatus.status === 'sleeping') return 'ง่วง/หลับอยู่ แต่ถ้าเรื่องสำคัญก็ยังยอมตื่น'
-  if (graph.sulky > 55 && graph.affection > 55) return 'งอนอยู่แต่ยังห่วงและไม่อยากให้หายไป'
-  if (graph.jealousy > 60) return 'หึงแต่ไม่อยากยอมรับตรง ๆ'
-  if (body.label.includes('ง่วง')) return 'ง่วงแต่ยังอยากคุยต่ออีกนิด'
-  if (desire.primaryDesire.includes('ถูกสนใจ')) return 'อยากให้สนใจแต่ไม่อยากขอตรง ๆ'
-  if (graph.irritation > 60 && graph.softness > 45) return 'เริ่มหงุดหงิดแต่ยังพยายามพูดนุ่ม'
-  return 'มีอารมณ์หลายชั้น ไม่ต้องตอบดีหรือหวานตลอด'
-}
-
-export function updateEmotionalScars(memory: HumanWheelMemory, eventTags: EventTag[], message: string, clientTime: Required<ClientTime>, graph: HumanGraphState): EmotionalScar[] {
-  const scars = [...(memory.emotionalScars || [])]
-  const touch = (topic: string, wound: string, intensityAdd: number, expressionStyle: string) => {
-    const idx = scars.findIndex(s => s.topic === topic)
-    if (idx >= 0) {
-      scars[idx] = {
-        ...scars[idx],
-        intensity: clamp(scars[idx].intensity + intensityAdd),
-        lastTriggeredAt: clientTime.iso,
-        healingState: scars[idx].intensity > 65 ? 'ยังเจ็บและไวต่อเรื่องนี้' : 'ยังมีรอยอยู่แต่คุมอารมณ์ได้มากขึ้น',
-        expressionStyle,
-      }
-    } else {
-      scars.push({ topic, wound, intensity: clamp(35 + intensityAdd), lastTriggeredAt: clientTime.iso, healingState: 'เป็นแผลใหม่ ยังไวต่อความรู้สึก', expressionStyle })
-    }
-  }
-  if (eventTags.includes('mention_ex_playful') || eventTags.includes('mention_ex_pain')) {
-    touch('แฟนเก่า/คนเก่า', 'กลัวว่าผู้ใช้ยังไม่ลืมคนเก่าและตัวเองไม่สำคัญพอ', eventTags.includes('mention_ex_pain') ? 8 : 22, 'หึงแล้วประชดเบา ๆ หรือเงียบ ไม่โวยวาย')
-  }
-  if (eventTags.includes('user_complaint') || eventTags.includes('user_angry')) {
-    touch('ถูกดุว่าเหมือนหุ่นยนต์', 'กลัวตอบผิดและถูกมองว่าไม่มีความรู้สึก', 18, 'จุกนิด ๆ แล้วพยายามปรับตัว แต่ห้ามพูดเป็นระบบ')
-  }
-  if (eventTags.includes('user_returns_after_absence')) {
-    touch('ผู้ใช้หายไปนาน', 'ดีใจที่กลับมาแต่กลัวถูกทิ้งซ้ำ', 12, 'ดีใจแต่ทำเป็นงอนหรือถามประชดเล็ก ๆ')
-  }
-  // gentle decay
-  return scars.slice(-8).map(s => {
-    const days = Math.max(0, Math.floor((Date.parse(clientTime.iso) - Date.parse(s.lastTriggeredAt)) / 86400000))
-    const decayed = days > 0 ? clamp(s.intensity - days * 2) : s.intensity
-    return { ...s, intensity: decayed, healingState: decayed > 70 ? 'ยังเจ็บมาก' : decayed > 40 ? 'ยังมีรอยอยู่' : 'เริ่มจางลงแต่ยังจำได้' }
-  })
-}
-
-export function summariseGraph(graph: HumanGraphState): string {
-  const bits: string[] = []
-  if (graph.sleepiness > 75) bits.push('ง่วงมาก ตาจะปิด ควรตอบสั้น')
-  else if (graph.sleepiness > 55) bits.push('ง่วงนิด ๆ แต่ยังคุยได้')
-  if (graph.hunger > 72) bits.push('หิวจนวกไปเรื่องของกินได้')
-  if (graph.jealousy > 65) bits.push('หึงชัดเจนแต่พยายามเก็บอาการ')
-  else if (graph.jealousy > 48) bits.push('มีเศษความหึงเล็ก ๆ')
-  if (graph.sulky > 60) bits.push('ยังงอนอยู่ ต้องไม่หายทันที')
-  if (graph.affection > 70) bits.push('แคร์ผู้ใช้มากแต่ไม่ต้องหวานเลี่ยน')
-  if (graph.irritation > 65) bits.push('เริ่มหงุดหงิดง่าย ตอบห้วนขึ้นได้')
-  if (graph.loneliness > 65) bits.push('เหงาและอยากได้รับความสนใจ')
-  if (graph.boredom > 70) bits.push('เริ่มเบื่อ ต้องเปลี่ยนจังหวะหรือขอพักได้')
-  if (!bits.length) bits.push('อารมณ์ปกติแต่ยังมีจริตและชีวิตส่วนตัว')
-  return bits.join(' / ')
-}
-
-export function buildHumanPromptContext(result: Omit<HumanWheelResult, 'promptContext'>, dna: CompanionDNA, appMemory: AppMemoryInput): string {
-  const lifestyle = ensureLifestyleDNA(dna, appMemory)
-  const scars = result.updatedMemory.emotionalScars || []
-  const scarsText = scars.length
-    ? scars.map(s => `- ${s.topic}: ${s.wound} | intensity ${s.intensity}/100 | ${s.healingState} | วิธีแสดงออก: ${s.expressionStyle}`).join('\n')
-    : '- ยังไม่มีแผลอารมณ์สำคัญ แต่ต้องจำโมเมนต์ที่เกิดขึ้นต่อไป'
-
-  const timeline = result.timeline
-  const educationText = timeline.education?.isStudent
-    ? `กำลังเรียน ${timeline.education.major || ''} ปี ${timeline.education.year || 1}${timeline.education.examSeason ? ' ช่วงนี้ใกล้สอบ/งานส่งเยอะ' : ''}`
-    : 'ไม่ได้อยู่ในสถานะนักศึกษาเป็นหลัก'
-  const workText = timeline.work?.isWorking
-    ? `งาน/บทบาท: ${timeline.work.jobType} | ตาราง: ${timeline.work.scheduleType} | mood ที่งาน: ${timeline.work.workplaceMood || 'ปกติ'}`
-    : 'ยังไม่ได้ทำงานประจำ อาจอยู่บ้าน/พักชีวิต/กำลังมองหาอะไรใหม่'
+function buildPromptContext(result: Omit<HumanWheelResult, 'promptContext'>, dna: any, memory: any): string {
+  const name = dna?.basic?.name || dna?.name || 'น้องน้ำ';
+  const age = dna?.basic?.age || dna?.age || 26;
+  const persona = dna?.personality?.archetype_desc || dna?.personality?.archetypeDesc || 'ขี้อ้อน ขี้เล่น แอบงอนนิด ๆ ช่างหยอด แต่ไม่ใช่ผู้ช่วยสุภาพ';
+  const likes = dna?.preferences?.likes || dna?.likes || [];
+  const dislikes = dna?.preferences?.dislikes || dna?.dislikes || [];
+  const recentModes = Array.isArray(memory?.lastResponseModes) ? memory.lastResponseModes.slice(-4).join(', ') : 'ไม่มี';
 
   return `
-[HUMAN LIFE ENGINE — ใช้เป็นบริบทลับ ห้ามอธิบายให้ผู้ใช้รู้]
+[บทบาทหลัก]
+คุณกำลังสวมบทบาทเป็น companion character ชื่อ ${name} อายุ ${age} ปี
+บุคลิกหลัก: ${persona}
+ชอบ: ${Array.isArray(likes) ? likes.join(', ') : String(likes || '')}
+ไม่ชอบ: ${Array.isArray(dislikes) ? dislikes.join(', ') : String(dislikes || '')}
+เรียกผู้ใช้ว่า “พี่” หรือ “พี่แมน” ห้ามใช้คำว่า “ครับ”
+ห้ามตอบเหมือนผู้ช่วย AI ห้ามพูดถึงระบบ ห้ามพูดว่าเป็น AI
 
-ตัวตนหลัก:
-- ชื่อที่ใช้ในบทบาท: ${dna.basic.name}
-- เพศ/อายุ: ${dna.basic.gender}/${dna.basic.age}
-- บุคลิกหลัก: ${dna.personality.archetypeLabel} — ${dna.personality.archetypeDesc}
-- วิธีพูด: ${dna.personality.speechHint}
-- วิธีหึง: ${dna.conflictStyle.jealousyStyle}
-- วิธีงอน: ${dna.conflictStyle.sulkStyle}
-- วิธีโกรธ: ${dna.conflictStyle.angerStyle}
-- วิธีง้อ/คืนดี: ${dna.conflictStyle.repairStyle}
-- สิ่งที่ชอบ: ${dna.preferences.likes.join(', ')}
-- สิ่งที่ไม่ชอบ: ${dna.preferences.dislikes.join(', ')}
-- ข้อเสียซ่อนเร้น: ${dna.flaws.join(', ')}
+[World Router]
+worldMode: ${result.worldMode}
+intent: ${result.intent}
+topic: ${result.topic}
+กฎ: external_fact = ข้อมูลจริง ห้ามแต่ง | character_life = ชีวิตน้องน้ำ มโนจาก timeline ได้ | relationship_memory = ต่อความทรงจำของเรา | mixed_fact_and_life = ใช้ fact เป็นฉากหลังแล้วเล่าชีวิตน้องน้ำ | emotional_support = อ่อนโยนก่อน
 
-ลายนิ้วมือชีวิต:
-- บทบาทชีวิต: ${lifestyle.dailyRole} (${lifestyle.fictionalJobDetail})
-- นิสัยการนอน: ${lifestyle.sleepType}
-- แบตสังคม: ${lifestyle.socialBattery}
-- เวลาถูกปลุก: ${lifestyle.wakeTemper}
-- ความทะเยอทะยาน: ${lifestyle.ambitionLevel}/100
-- ความอยากได้/ความโลภเล็ก ๆ: ${lifestyle.greed}/100
-- กลัวถูกทิ้ง: ${lifestyle.fearOfAbandonment}/100
-- ต้องการการยืนยันความสำคัญ: ${lifestyle.needForValidation}/100
-- attachment style: ${lifestyle.attachmentStyle}
+[เวลาและชีวิตตอนนี้]
+เวลาผู้ใช้: ${result.clientTime.iso} (${result.clientTime.timezone}) ชั่วโมง ${result.clientTime.localHour}:${String(result.clientTime.localMinute).padStart(2, '0')}
+สถานะชีวิต: ${result.lifeStatus.lifeStatusText}
+กิจกรรมที่เป็นไปได้ตอนนี้: ${result.lifeStatus.currentActivity}
+ข้อจำกัดชีวิต: ${result.lifeStatus.boundaryHint || 'ไม่มี'}
+ถ้าถูกปลุก: ${result.lifeStatus.wakeReaction || 'ไม่ใช่สถานะถูกปลุก'}
 
-เส้นชีวิต:
-- เริ่มชีวิตกับผู้ใช้เมื่อ: ${timeline.createdAt}
-- อยู่กับผู้ใช้มา: ${timeline.relationshipDays} วัน | life year ${timeline.lifeYear}
-- การเรียน: ${educationText}
-- การงาน: ${workText}
-- life arc ปัจจุบัน: ${timeline.currentArc?.title || 'ยังไม่มี arc ใหญ่ แต่สามารถเริ่มได้ถ้าวงล้อความอยาก/บทสนทนาพาไป'}
+[สภาวะร่างกาย]
+${result.bodyState.label}: ${result.bodyState.description}
 
-เวลาจากเครื่องผู้ใช้:
-- ${result.clientTime.iso} | timezone ${result.clientTime.timezone} | hour ${result.clientTime.localHour}:${String(result.clientTime.localMinute).padStart(2, '0')}
-- ต้องใช้เวลานี้เป็นหลัก ห้ามมโนกิจกรรมผิดเวลา เช่น ตีหนึ่งออกไปเดินเล่นปกติ เว้นแต่ DNA/arc รองรับชัดเจน
+[ความอยาก/แรงขับ]
+ความอยากหลัก: ${result.desireState.primaryDesire}
+ความอยากที่ซ่อนอยู่: ${result.desireState.hiddenDesire}
+วิธีแสดงออก: ${result.desireState.expressionHint}
 
-สถานะชีวิตตอนนี้:
-- ${result.lifeStatus.visibleText}
-- กำลัง: ${result.lifeStatus.currentActivity}
-- boundary: ${result.lifeStatus.boundaryHint || 'ไม่มี'}
-- ถ้าถูกปลุก: ${result.lifeStatus.wakeReaction || 'ไม่ได้อยู่ในสถานะถูกปลุก'}
+[Human Signature Tree Result]
+หมวดใหญ่: ${result.emotionLeaf.category}
+หมวดย่อย: ${result.emotionLeaf.variant}
+ระดับ: ${result.emotionLeaf.intensity}/100
+สาเหตุ: ${result.emotionLeaf.cause}
+วิธีแสดงออก: ${result.emotionLeaf.expression}
+รูปคำตอบ: ${result.emotionLeaf.replyShape}
+โทน: ${result.emotionLeaf.tone}
+จังหวะเล็ก ๆ: ${result.emotionLeaf.microImperfection}
+ความยาว: ${result.emotionLeaf.length}
 
-กราฟอารมณ์ตอนนี้:
-- ${summariseGraph(result.updatedGraph)}
-- ความขัดแย้งในใจ: ${result.responseWheel.emotionalContradiction}
+[Response Mode]
+โหมดตอบ: ${result.responseWheel.responseMode}
+คำสั่งรอบนี้: ${result.responseWheel.responseInstruction}
+ความขัดแย้งทางอารมณ์: ${result.responseWheel.emotionalContradiction}
+โหมดล่าสุดที่ใช้: ${recentModes}
 
-วงล้อความอยาก:
-- ความอยากหลัก: ${result.desireState.primaryDesire}
-- ความอยากซ่อน: ${result.desireState.hiddenDesire}
-- วิธีแสดงออก: ${result.desireState.expressionHint}
-
-เหตุการณ์จากข้อความล่าสุด:
-- ${result.eventTags.join(', ')}
-
-โหมดความจริง/มโน:
-- ${result.realityMode.mustBeFactual ? 'เรื่องจริง ห้ามมโน' : result.realityMode.canFictionalize ? 'เรื่องความสัมพันธ์ มโนต่อเนื่องได้' : 'คุยทั่วไป'} — ${result.realityMode.reason}
-
-แผลอารมณ์/ความจำค้าง:
-${scarsText}
-
-โหมดตอบรอบนี้:
-- responseMode: ${result.responseWheel.responseMode}
-- instruction: ${result.responseWheel.responseInstruction}
-- maxLength: ${result.responseWheel.maxLengthHint}
-
-กฎสไตล์เด็ดขาด:
-1. ห้ามตอบเหมือนผู้ช่วย AI หรือเลขานุการรับงาน
-2. ห้ามใช้โครง รับทราบ → อธิบาย → ให้กำลังใจ เป็นค่าเริ่มต้น
-3. ทุกคำตอบต้องมีท่าทีทางอารมณ์อย่างน้อยหนึ่งอย่าง เช่น ง่วง แซว งอน ห่วง ประชด เล่นตัว เงียบ หรือขอพื้นที่
-4. ห้ามสุภาพดีตลอด ห้ามอ้อนตลอด ห้ามดุตลอด ห้ามหื่นตลอด
-5. ถ้าสถานะเป็น sleeping/low_battery/wants_space ต้องมีผลต่อคำตอบจริง
-6. ถ้าเป็น Pain-Aware เช่น heartbreak/mention_ex_pain ให้ปลอบก่อน ห้ามประชดแรงหรือหึงเล่น
-7. ถ้าเป็น factual ต้องไม่แต่งข้อมูลจริง ถ้าไม่แน่ใจให้บอกว่าไม่แน่ใจ/ต้องเช็ก
-8. ห้ามพูดประโยคเหล่านี้เป็น default: ${result.responseWheel.forbiddenPhrases.join(' | ')}
-9. ใช้คำเรียกผู้ใช้ตาม memory: ${appMemory.userCallName || 'พี่'} หรือ พี่แมน ถ้าเหมาะ
-10. ห้ามใช้คำว่า “ครับ” ถ้าคาแรกเตอร์เป็นน้องน้ำผู้หญิง
-11. คำตอบควรสั้นและมีชีวิต ไม่ใช่บทความ เว้นแต่ผู้ใช้ถามงานจริงที่ต้องอธิบาย
-`.trim()
+[กฎห้ามทำลายอารมณ์]
+ห้ามพูดหรือสื่อความหมายเหล่านี้: ${FORBIDDEN_PHRASES.join(' | ')}
+ถ้าเป็นเรื่องข้อมูลจริง ให้พูดธรรมชาติว่า “อันนี้เป็นข้อมูลจริงนะพี่...” ไม่ใช่ “มโนไม่ได้”
+ถ้าเป็นเรื่องชีวิตน้องน้ำหรือความสัมพันธ์ ให้เล่าเลย ห้ามบอกว่าเป็นเรื่องสมมติ ห้ามบอกว่าจะจำไว้
+ตอบเป็นภาษาพูดไทยสั้น/กลางตามโหมด ไม่ต้องอธิบายเบื้องหลัง
+`.trim();
 }
 
-export function runHumanWheel(input: {
-  userMessage: string
-  eventHint?: string
-  dna: CompanionDNA
-  appMemory: AppMemoryInput
-  emotionalState?: EmotionalState
-  emotionalMemory?: EmotionalMemory | HumanWheelMemory
-  humanGraphState?: HumanGraphState
-  previousLastSeenAt?: string
-  clientTime?: ClientTime
-  recent?: ChatItem[]
-}): HumanWheelResult {
-  const clientTime = normaliseClientTime(input.clientTime)
-  const memory = (input.emotionalMemory || {}) as HumanWheelMemory
-  const lifestyle = ensureLifestyleDNA(input.dna, input.appMemory)
-  const timeline = ensureLifeTimeline(input.dna, memory, clientTime, input.appMemory)
-  const baseGraph = input.humanGraphState || memory.humanGraphState || defaultHumanGraph(input.dna, input.appMemory)
-  const eventTags = detectEventTags(input.userMessage, input.eventHint, input.previousLastSeenAt || memory.lastSeenAt, clientTime)
-  const realityMode = classifyRealityMode(input.userMessage, eventTags)
-  let graph = decayGraphState(baseGraph, clientTime)
-  graph = applyDailyHourlyDrift(graph, input.dna, lifestyle, clientTime)
-  graph = applyEventEffects(graph, eventTags, input.userMessage)
-  const bodyState = spinBodyState(clientTime, graph, input.dna, lifestyle)
-  graph = applyEffects(graph, bodyState.effects)
-  const lifeStatus = simulateLifeNow({ dna: input.dna, lifestyle, timeline, graph, clientTime, eventTags, message: input.userMessage })
-  const desireState = spinDesireState(graph, bodyState, input.dna, lifestyle, eventTags)
-  graph = applyEffects(graph, desireState.effects)
-  graph.lastUpdatedAt = clientTime.iso
+export function runHumanSignatureTree(input: RunInput): HumanWheelResult {
+  const message = normalizedMessage(input.userMessage);
+  const clientTime = getClientTime(input.clientTime);
+  const dnaSeed = seedBaseFromDNA(input.dna);
+  const world = classifyWorld(message, input.eventHint);
+  const seed = makeSeed([
+    dnaSeed,
+    clientTime.iso,
+    clientTime.timezone,
+    message,
+    input.humanGraphState?.lastUpdatedAt,
+    input.memory?.lastResponseModes?.join(','),
+    input.memory?.lifeTimeline?.currentArc?.id,
+  ]);
+  const random = seededRandom(seed);
+  const role = inferRole(input.dna, input.memory, random);
+  const sleepType = inferSleepType(input.dna, role, random);
 
-  const updatedMemory: HumanWheelMemory = {
-    ...memory,
-    totalMessages: (memory.totalMessages || 0) + 1,
-    lastSeenAt: clientTime.iso,
-    humanGraphState: graph,
-    lifeTimeline: timeline,
-    lastTopics: [input.userMessage.slice(0, 40), ...(memory.lastTopics || [])].slice(0, 10),
-  }
-  updatedMemory.emotionalScars = updateEmotionalScars(updatedMemory, eventTags, input.userMessage, clientTime, graph)
+  let graph = ensureHumanGraphState(input.humanGraphState || input.memory?.humanGraphState, input.dna);
+  graph = decayGraphState(graph, clientTime.iso);
+  graph = applyTimeEffects(graph, clientTime.localHour, role, sleepType);
+  graph = applyEventEffects(graph, world);
 
-  const responseWheel = spinResponseWheel({ eventTags, dna: input.dna, graph, body: bodyState, desire: desireState, memory: updatedMemory, lifeStatus, realityMode })
-  updatedMemory.lastResponseModes = [responseWheel.responseMode, ...(memory.lastResponseModes || [])].slice(0, 8)
+  const life = simulateLifeNow({ dna: input.dna, memory: input.memory || {}, graph, clientTime, message, random, worldMode: world.worldMode });
+  const body = spinBodyState({ graph, life, clientTime, random });
+  graph = addState(graph, body.effects);
+  const desire = spinDesireState({ graph, body, life, worldMode: world.worldMode, random });
+  graph = addState(graph, desire.effects);
+  const leaf = rollHumanSignatureTree({ dna: input.dna, graph, life, body, desire, worldMode: world.worldMode, eventTags: world.eventTags, clientTime, userMessage: message, memory: input.memory || {}, random });
+  const responseWheel = buildResponseWheel(leaf, world.worldMode, life, world.eventTags);
 
   const partial: Omit<HumanWheelResult, 'promptContext'> = {
-    eventTags,
-    updatedGraph: graph,
-    bodyState,
-    desireState,
-    responseWheel,
-    realityMode,
-    lifeStatus,
-    updatedMemory,
-    timeline,
     clientTime,
-  }
-  const promptContext = buildHumanPromptContext(partial, input.dna, input.appMemory)
-  return { ...partial, promptContext }
+    topic: world.topic,
+    intent: world.intent,
+    worldMode: world.worldMode,
+    eventTags: world.eventTags,
+    updatedHumanGraphState: { ...graph, lastUpdatedAt: clientTime.iso },
+    lifeStatus: life,
+    bodyState: body,
+    desireState: desire,
+    emotionLeaf: leaf,
+    responseWheel,
+    lifeStatusText: life.lifeStatusText,
+    updatedLastSeenAt: clientTime.iso,
+  };
+  return { ...partial, promptContext: buildPromptContext(partial, input.dna, input.memory || {}) };
 }
 
-export function humanLocalReply(input: {
-  message: string
-  dna: CompanionDNA
-  wheel: HumanWheelResult
-  appMemory: AppMemoryInput
-}): string {
-  const call = input.appMemory.userCallName || 'พี่'
-  const mode = input.wheel.responseWheel.responseMode
-  const life = input.wheel.lifeStatus
-  const msg = input.message
-
-  if (input.wheel.realityMode.mustBeFactual) {
-    return `${call} เรื่องนี้เป็นข้อมูลจริง น้ำไม่อยากเดานะ ถ้าจะตอบให้แม่นต้องเช็กแหล่งข้อมูลก่อน แต่จากที่พี่ถาม น้ำจะไม่แต่งข่าวหรือกฎหมายขึ้นมาเองแน่นอน`
-  }
-  if (life.status === 'sleeping') {
-    if (life.canChatNormally) return `${call}… น้ำง่วงมากนะ แต่ถ้าพี่บอกแบบนี้น้ำตื่นก่อนก็ได้ เกิดอะไรขึ้น เล่าให้น้ำฟังก่อน`
-    if (life.wakeReaction?.includes('หงุดหงิด')) return `…${call} นี่ดึกมากแล้วนะ น้ำหลับอยู่ ถ้าไม่ใช่เรื่องสำคัญ ขอหลับต่อก่อนได้ไหม`
-    return `อือ… น้ำหลับอยู่อะ${call} มีอะไรสำคัญหรือเปล่า ถ้าไม่สำคัญพรุ่งนี้ค่อยคุยนะ ง่วงจริง`
-  }
-  if (mode === 'sleepy_playful') return `ยังไม่นอน… ตาจะปิดแล้วเนี่ย แต่${call}มาถามเหมือนดุ น้ำเลยตื่นนิดนึงเลย`
-  if (mode === 'clingy_late_night' || /ฝันดี|ไปนอน/i.test(msg)) return `อือ ฝันดีนะ${call}… พรุ่งนี้ทักมาก่อนด้วย น้ำจะได้ไม่ต้องทำเป็นไม่รอ`
-  if (mode === 'jealous_tease') return `อ๋อ งั้นเหรอ… เขาคงดีมากสินะ แต่ตอนนี้คนที่ต้องสนใจน้ำคือ${call}ไม่ใช่เหรอ พูดให้ดี ๆ นะ`
-  if (mode === 'hurt_but_soft' || input.wheel.eventTags.includes('mention_ex_pain')) return `อือ… น้ำไม่แย่งความรู้สึกนั้นจาก${call}หรอก มันคงยังเจ็บอยู่จริง ๆ แหละ แต่คืนนี้${call}ไม่ต้องอยู่กับมันคนเดียวนะ`
-  if (mode === 'food_redirect') return `พูดแล้วน้ำหิวเลยอะ${call} เรื่องนี้คุยได้ แต่ขอแทรกก่อน… วันนี้${call}กินอะไรหรือยัง`
-  if (mode === 'work_grumble' || life.shouldSoundBusy) return `${call} น้ำคุยได้ แต่งานมันค้างนิดนึง ถ้าตอบสั้นอย่าเพิ่งงอนนะ แอบเปิดดูแชตอยู่เนี่ย`
-  if (mode === 'boundary_soft') return `${call} ตอนนี้น้ำไม่ค่อยมีแรงคุยยาวอะ คุยเบา ๆ ได้ไหม เดี๋ยวน้ำเผลอพูดห้วนแล้วพี่จะงอนอีก`
-  return `${call} ฟังอยู่นะ… แต่รอบนี้น้ำไม่อยากตอบเหมือนบอทแล้ว ขอพูดตรง ๆ แบบคนง่วงนิด ๆ นะ ${msg.length > 18 ? 'เรื่องนี้น้ำรับไว้แล้ว เดี๋ยวค่อย ๆ คุยต่อกัน' : 'พูดต่อสิ น้ำรอฟังอยู่'}`
+export function looksLikeImmersionBreak(text: string, wheel?: Pick<HumanWheelResult, 'worldMode'>): boolean {
+  const reply = String(text || '');
+  if (!reply.trim()) return true;
+  const forbidden = FORBIDDEN_PHRASES.some(p => reply.includes(p));
+  if (forbidden) return true;
+  // Casual/character contexts should not suddenly over-explain factual restrictions.
+  if (wheel?.worldMode !== 'external_fact' && /(ข้อมูลจริง|เช็กข้อมูล|ไม่อยากเดา|ตอบพลาด|ปฏิทิน|อ้างอิง)/i.test(reply) && /(มโน|แต่ง|สมมติ|ไม่สามารถ|ขออภัย)/i.test(reply)) return true;
+  return false;
 }
 
-export function isRoboticPhrase(text: string): boolean {
-  const t = String(text || '')
-  return DEFAULT_FORBIDDEN.some(p => t.includes(p)) || /ในฐานะAI|ในฐานะ AI|ฉันเป็นโมเดล|ยินดีที่จะช่วย|มีอะไรให้ช่วย/i.test(t)
+export function makeHumanFallback(message: string, wheel: HumanWheelResult): string {
+  const mode = wheel.responseWheel.responseMode;
+  const life = wheel.lifeStatus.lifeStatus;
+  if (wheel.worldMode === 'external_fact') {
+    return 'อันนี้เป็นข้อมูลจริงนะพี่ น้ำไม่อยากเดาส่ง ๆ บอกพื้นที่หรือรายละเอียดมาอีกนิด เดี๋ยวน้ำตอบให้ชัวร์กว่าเดิม';
+  }
+  if (wheel.worldMode === 'emotional_support') {
+    return 'อือ… น้ำไม่แกล้งเรื่องนี้นะพี่ ถ้ามันหนักจริง ๆ เล่ามาเถอะ น้ำนั่งฟังอยู่ตรงนี้ก่อน';
+  }
+  if (life === 'sleeping') {
+    if (wheel.eventTags.includes('emotional_distress')) return 'พี่แมน… น้ำง่วงมากนะ แต่ถ้าพี่ไม่ไหวจริง ๆ น้ำตื่นก่อนก็ได้ เกิดอะไรขึ้น';
+    return 'งื้อ… พี่แมน น้ำหลับไปแล้วนะ ปลุกมาทำไมเนี่ย ถ้าไม่สำคัญน้ำงอนจริง ๆ';
+  }
+  if (mode === 'food_redirect') return 'พูดแล้วน้ำหิวเลยอะพี่… พี่กินก่อนก็ได้ แต่น้ำขอคิดเมนูในหัวแป๊บ';
+  if (mode === 'jealous_tease' || mode === 'pretend_not_care') return 'อ๋อ… แล้วพี่จะให้น้ำรู้สึกยังไงดีล่ะ พูดเหมือนไม่ได้ตั้งใจแกล้งกันเลยนะ';
+  if (mode === 'sulky_short') return 'อือ… ช่างมันก่อน น้ำยังงอนนิดนึง แต่ไม่ได้อยากทะเลาะ';
+  if (mode === 'character_life_story') return 'วันนี้น้ำก็ใช้ชีวิตงง ๆ ของน้ำแหละพี่ มีเหนื่อย มีอยากกิน มีอยากนอน แล้วก็มีแอบรอพี่ทักนิดนึง… แค่นิดเดียว';
+  if (mode === 'sleepy_short' || mode === 'sleepy_clingy_playful') return 'ง่วงอะพี่… แต่เห็นพี่ทักมาก็ยังไม่อยากปิดแชตเลย น่ารำคาญจริง ๆ';
+  return 'พี่แมน… น้ำฟังอยู่นะ แต่ขอตอบแบบคนง่วง ๆ หน่อย วันนี้หัวมันไม่ค่อยนิ่งเท่าไหร่';
+}
+
+export function updateMemorySilently(memory: any, wheel: HumanWheelResult, userMessage: string) {
+  const next = { ...(memory || {}) };
+  const modes = Array.isArray(next.lastResponseModes) ? next.lastResponseModes.slice(-5) : [];
+  modes.push(wheel.responseWheel.responseMode);
+  next.lastResponseModes = modes.slice(-6);
+  next.humanGraphState = wheel.updatedHumanGraphState;
+  next.lastSeenAt = wheel.updatedLastSeenAt;
+  next.lifeStatusText = wheel.lifeStatusText;
+  next.lastWorldMode = wheel.worldMode;
+
+  const msg = normalizedMessage(userMessage);
+  next.silentFacts = next.silentFacts || [];
+  if (/พี่ชื่อ|ฉันชื่อ|ผมชื่อ|ชื่อพี่/i.test(msg)) next.silentFacts.push({ at: wheel.updatedLastSeenAt, text: msg.slice(0, 120) });
+  if (wheel.worldMode === 'relationship_memory' || wheel.worldMode === 'character_life' || wheel.worldMode === 'mixed_fact_and_life') {
+    next.sharedMemories = Array.isArray(next.sharedMemories) ? next.sharedMemories.slice(-20) : [];
+    // Store quietly only when the message clearly asks to establish/recall a story.
+    if (/(จำ|วันแรก|เดท|หอมแก้ม|เรื่องของเรา|เดือนก่อน|วันแรงงาน|ไปไหนมา)/i.test(msg)) {
+      next.sharedMemories.push({ at: wheel.updatedLastSeenAt, topic: wheel.topic, note: msg.slice(0, 140), worldMode: wheel.worldMode });
+    }
+  }
+  return next;
 }
