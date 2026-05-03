@@ -1,10 +1,10 @@
 /*
- * timeTruthBranchLite.ts — Nong Nam v11.15.3 Absolute Time Fix
- * ------------------------------------------------------------
- * แก้เวลาผิดแบบเด็ดขาด:
- * - ใช้ local parts จากเครื่องผู้ใช้ก่อนเสมอ: clientHour/clientMinute/clientDayOfWeek
- * - ห้ามใช้ server timezone มาตอบเวลา ถ้ามี client local parts
- * - ใช้ timeTruthToBranchDate() ส่งเวลาเดียวกันเข้า branch ทุกตัว
+ * timeTruthBranchLite.ts — v11.15.4 UI-Time Truth Lock
+ * ----------------------------------------------------
+ * จุดประสงค์:
+ * - เวลาที่ใช้ตอบผู้ใช้ต้องมาจากเครื่องผู้ใช้โดยตรง
+ * - ถ้า page.tsx ส่ง clientHour/clientMinute มาแล้ว source ต้องเป็น client_local_parts
+ * - ห้ามให้ LLM เดาเวลาเอง
  */
 
 export type TimeTruthInput = {
@@ -21,7 +21,7 @@ export type TimeTruthInput = {
 }
 
 export type TimeTruthLite = {
-  version: 'v11.15.3-absolute-time-fix'
+  version: 'v11.15.4-ui-time-truth-lock'
   source: 'client_local_parts' | 'client_iso' | 'server_fallback'
   iso: string
   timeZone: string
@@ -34,6 +34,7 @@ export type TimeTruthLite = {
   date: number
   period: string
   thaiTimeText: string
+  debugText: string
   promptHint: string
 }
 
@@ -72,7 +73,7 @@ function thaiClockText(hour: number, minute: number) {
 
 export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
   const serverNow = input.serverNow || new Date()
-  const timeZone = input.clientTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown'
+  const timeZone = input.clientTimeZone || 'unknown'
   const utcOffsetMinutes = typeof input.clientUtcOffsetMinutes === 'number' ? input.clientUtcOffsetMinutes : null
 
   let source: TimeTruthLite['source'] = 'server_fallback'
@@ -117,7 +118,7 @@ export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
   const thaiTimeText = thaiClockText(hour, minute)
 
   return {
-    version: 'v11.15.3-absolute-time-fix',
+    version: 'v11.15.4-ui-time-truth-lock',
     source,
     iso,
     timeZone,
@@ -130,7 +131,8 @@ export function buildTimeTruthLite(input: TimeTruthInput = {}): TimeTruthLite {
     date,
     period,
     thaiTimeText,
-    promptHint: `เวลาจริงตอนนี้คือ ${thaiTimeText} ช่วง${period}. source=${source}. ห้ามเดาเวลาเอง`,
+    debugText: `source=${source}; local=${pad(hour)}:${pad(minute)}; tz=${timeZone}; offset=${utcOffsetMinutes}`,
+    promptHint: `เวลาจริงตอนนี้คือ ${thaiTimeText} ช่วง${period}. ถ้าถามเวลา ให้ตอบค่านี้เท่านั้น`,
   }
 }
 
@@ -143,18 +145,17 @@ export function timeTruthToBranchDate(time: TimeTruthLite): Date {
 
 export function summarizeTimeTruthForPrompt(time: TimeTruthLite) {
   return `
-[Time Truth v11.15.3 — เวลาจริง ห้ามเดา]
+[Time Truth v11.15.4 — เวลาจริง ห้ามเดา]
 source=${time.source}
 timeZone=${time.timeZone}
-utcOffsetMinutes=${time.utcOffsetMinutes}
 hour=${time.hour}
 minute=${time.minute}
 period=${time.period}
 thaiTimeText=${time.thaiTimeText}
 
-คำสั่ง:
-- ถ้าผู้ใช้ถามว่า "ตอนนี้กี่โมง/กี่ทุ่ม/เวลาเท่าไหร่" ให้ตอบตาม thaiTimeText เท่านั้น
-- ห้ามมโนเวลา ห้ามเดาเวลา ห้ามใช้เวลาจากอารมณ์
-- ถ้า source=client_local_parts แปลว่าเป็นเวลาจากเครื่องผู้ใช้ ให้เชื่อค่านี้เป็นอันดับ 1
+คำสั่งเด็ดขาด:
+- ถ้าผู้ใช้ถามเวลา ให้ตอบตาม thaiTimeText เท่านั้น
+- ห้ามเดาเวลาเอง
+- ถ้า source=client_local_parts แปลว่าเวลามาจากเครื่องผู้ใช้โดยตรง
 `.trim()
 }

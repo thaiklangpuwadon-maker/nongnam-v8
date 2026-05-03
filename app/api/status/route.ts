@@ -83,8 +83,13 @@ export async function POST(req: NextRequest) {
       companionDNA: dna,
       timeTruth,
       visibleStatus,
+      debug: {
+        mustBeClientLocalParts: timeTruth.source === 'client_local_parts',
+        receivedClientHour: body.clientHour,
+        receivedClientMinute: body.clientMinute,
+      },
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'open-status-v11.15.3',
+      source: 'open-status-v11.15.4',
     })
   } catch (error) {
     return json({
