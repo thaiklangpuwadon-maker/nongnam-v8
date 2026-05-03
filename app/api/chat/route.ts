@@ -36,6 +36,11 @@ import {
   summarizeHumanCoreDesireForPrompt,
   type HumanCoreDesireKilesaBranchLite,
 } from '../../../lib/humanCoreDesireKilesaBranchLite'
+import {
+  buildVisibleStatusLite,
+  summarizeVisibleStatusForPrompt,
+  type VisibleStatusLite,
+} from '../../../lib/visibleStatusBranchLite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -103,7 +108,8 @@ function localReply(
   micro?: HumanMicroBranchLite,
   life?: HumanLifeSceneBranchLite,
   bodyAuto?: HumanBodyAutonomyBranchLite,
-  core?: HumanCoreDesireKilesaBranchLite
+  core?: HumanCoreDesireKilesaBranchLite,
+  status?: VisibleStatusLite
 ) {
   const call = memory?.userCallName || 'พี่'
   const intent = detectIntent(message)
@@ -117,6 +123,8 @@ function localReply(
     reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   } else if (intent === 'reminder') {
     reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
+  } else if (status?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) {
+    reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
   } else if (intent === 'nam_food') {
     if (style === 'sassy_tease') reply = `${interjection}ยังไม่ได้กิน พี่ถามแบบนี้คือจะเลี้ยงใช่ไหม`
     else if (style === 'quiet_cool') reply = 'ยัง ไม่ค่อยหิว แต่พี่ถามแล้วก็เริ่มคิดเรื่องกินขึ้นมา'
@@ -166,8 +174,9 @@ function buildSystemPrompt(params: {
   life: HumanLifeSceneBranchLite
   bodyAuto: HumanBodyAutonomyBranchLite
   core: HumanCoreDesireKilesaBranchLite
+  status: VisibleStatusLite
 }) {
-  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core } = params
+  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, status } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
   const call = memory?.userCallName || 'พี่'
 
@@ -176,6 +185,8 @@ function buildSystemPrompt(params: {
 ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
 
 ${summarizeDNAForPrompt(dna)}
+
+${summarizeVisibleStatusForPrompt(status)}
 
 ${summarizeHumanLifeSceneForPrompt(life)}
 
@@ -191,7 +202,8 @@ ${summarizeHumanMicroBranchForPrompt(micro)}
 
 กฎตอบ:
 - ตอบประเด็นล่าสุดก่อนเสมอ
-- ใช้ DNA + Life Scene + Body/Autonomy + Core Desire + Deep Human Tree + Sub/Micro Branch
+- สถานะที่ผู้ใช้เห็นคือ "${status.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
+- ใช้ DNA + Visible Status + Life Scene + Body/Autonomy + Core Desire + Deep Human Tree + Sub/Micro Branch
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
 - ห้ามเล่าฉากชีวิตทั้งหมด เว้นแต่ผู้ใช้ถามว่าทำอะไรอยู่
 - ให้กลิ่นชีวิต/ร่างกาย/แรงขับโผล่มาแค่ 1-2 จุด
@@ -205,7 +217,8 @@ ${summarizeHumanMicroBranchForPrompt(micro)}
 - ห้ามตอบเป็นบทความ ห้ามสรุปเป็นข้อ ๆ ถ้าไม่ได้ถูกขอ
 - ความยาวให้ตาม Micro Branch: ประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
 - ถามกลับได้เท่าที่ Micro Branch อนุญาตเท่านั้น
-- ถ้าถามชีวิตของ${name} ให้ตอบจาก Life Scene ทันที
+- ถ้าถามชีวิตของ${name} ให้ตอบจาก Life Scene และ Visible Status ทันที
+- ถ้าสถานะหลับ/ง่วง แล้วผู้ใช้ปลุก ให้ตอบงัวเงียหรือบ่นได้
 - ถ้าถูกตำหนิว่าตอบผิด/แข็ง/ยาว ให้ยอมรับสั้น ๆ แต่อาจมีฟอร์ม/งอนนิด ๆ ตาม branch
 - ถ้าผู้ใช้ถามข่าว ให้บอกสั้น ๆ ว่าจะไปไล่ข่าวมาให้ อย่าสรุปข่าวปลอมเอง
 - ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
@@ -248,20 +261,22 @@ export async function POST(req: NextRequest) {
     const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message, recentText: recentString })
     const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message, recentText: recentString })
     const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString })
+    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message })
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || mode === 'local') {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus),
         companionDNA: dna,
+        visibleStatus,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
-        updatedMemory: { ...memory, companionDNA: dna },
-        source: 'local-core-desire-kilesa-lite',
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
+        source: 'local-visible-status-lite',
       })
     }
 
@@ -271,7 +286,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, status: visibleStatus }) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
@@ -285,37 +300,39 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       return json({
-        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core),
+        reply: localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus),
         companionDNA: dna,
+        visibleStatus,
         humanLayer: layer,
         humanSubBranch: sub,
         humanMicroBranch: micro,
         humanLifeScene: life,
         humanBodyAutonomy: bodyAuto,
         humanCoreDesire: core,
-        updatedMemory: { ...memory, companionDNA: dna },
-        source: 'api-error-core-desire-fallback',
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
+        source: 'api-error-visible-status-fallback',
         status: res.status,
       })
     }
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core)
+    if (!reply || violates(reply)) reply = localReply(message, memory, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus)
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
     return json({
       reply,
       companionDNA: dna,
+      visibleStatus,
       humanLayer: layer,
       humanSubBranch: sub,
       humanMicroBranch: micro,
       humanLifeScene: life,
       humanBodyAutonomy: bodyAuto,
       humanCoreDesire: core,
-      updatedMemory: { ...memory, companionDNA: dna },
-      source: 'openai-core-desire-kilesa-lite',
+      updatedMemory: { ...memory, companionDNA: dna, visibleStatus },
+      source: 'openai-visible-status-lite',
     })
   } catch (error) {
     return json({
