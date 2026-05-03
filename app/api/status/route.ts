@@ -25,7 +25,6 @@ type Body = {
   recent?: ChatItem[]
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
-
   clientNowISO?: string
   clientTimeZone?: string
   clientUtcOffsetMinutes?: number
@@ -154,7 +153,7 @@ export async function POST(req: NextRequest) {
       timeTruth,
       visibleStatus,
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'open-status-v11.15.2',
+      source: 'open-status-v11.15.2b',
     })
   } catch (error) {
     return json({
