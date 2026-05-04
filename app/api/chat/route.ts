@@ -1,304 +1,545 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { ensureCompanionDNALite, summarizeDNAForPrompt, type CompanionDNALite } from '../../../lib/companionDNALite'
-import { buildDeepHumanLayerLite, summarizeDeepHumanLayerForPrompt } from '../../../lib/humanLayerTreeLite'
-import { buildHumanSubBranchLite, summarizeHumanSubBranchForPrompt, compactHumanReply } from '../../../lib/humanSubBranchLite'
-import { buildHumanMicroBranchLite, summarizeHumanMicroBranchForPrompt, microCompactReply } from '../../../lib/humanMicroBranchLite'
-import { buildHumanLifeSceneBranchLite, summarizeHumanLifeSceneForPrompt } from '../../../lib/humanLifeSceneBranchLite'
-import { buildHumanBodyAutonomyBranchLite, summarizeHumanBodyAutonomyForPrompt } from '../../../lib/humanBodyAutonomyBranchLite'
-import { buildHumanCoreDesireKilesaBranchLite, summarizeHumanCoreDesireForPrompt } from '../../../lib/humanCoreDesireKilesaBranchLite'
-import { buildVisibleStatusLite, summarizeVisibleStatusForPrompt } from '../../../lib/visibleStatusBranchLite'
-import { buildTimeTruthLite, summarizeTimeTruthForPrompt, timeTruthToBranchDate, type TimeTruthLite } from '../../../lib/timeTruthBranchLite'
+import { NextRequest, NextResponse } from "next/server";
+import { buildDNA } from "../../../lib/humanSignature/dnaBuilder";
+import { buildRollContext, makeSeed, seededRandom, rollTree } from "../../../lib/humanSignature/engine";
+import { routeToTree } from "../../../lib/humanSignature/categoryRouter";
+import { buildHumanPrompt } from "../../../lib/humanSignature/promptBuilder";
+import type { CompanionMemory } from "../../../lib/humanSignature/types";
 
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type ChatItem = { role: 'user' | 'assistant'; text: string; ts?: number }
+type ClientPayload = {
+  message: string;
+  memory?: {
+    gender?: "male" | "female";
+    nongnamName?: string;
+    userCallName?: string;
+    relationshipMode?: string;
+    personalityStyle?: string;
+    sulkyLevel?: string;
+    jealousLevel?: string;
+    affectionStyle?: string;
+    affectionScore?: number;
+    facts?: Array<{ key: string; value: string }>;
+    schedules?: Array<{ type: string; label: string; time: string }>;
+    recentMentions?: string[];
+    socialBattery?: number;
+  };
+  recent?: Array<{ role: string; text: string }>;
 
-type Body = {
-  message?: string
-  memory?: any
-  recent?: ChatItem[]
-  mode?: 'local' | 'api-light' | 'api-deep' | string
-  companionDNA?: CompanionDNALite | null
-  clientNonce?: string
+  clientTimestampMs?: number;
+  clientNowISO?: string;
+  clientTimeZone?: string;
+  clientUtcOffsetMinutes?: number;
+  clientHour?: number;
+  clientMinute?: number;
+  clientSecond?: number;
+  clientDayOfWeek?: number;
+  clientYear?: number;
+  clientMonth?: number;
+  clientDate?: number;
+  clientTimeText?: string;
+  clientDateText?: string;
+  clientDateTimeText?: string;
 
-  clientTimestampMs?: number
-  clientTimeText?: string
-  clientDateText?: string
-  clientDateTimeText?: string
-  clientNowISO?: string
-  clientTimeZone?: string
-  clientUtcOffsetMinutes?: number
-  clientHour?: number
-  clientMinute?: number
-  clientSecond?: number
-  clientDayOfWeek?: number
-  clientYear?: number
-  clientMonth?: number
-  clientDate?: number
+  clientTimestamp?: string;
+};
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
 }
 
-function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status })
+function hasClientLocalTime(p: ClientPayload) {
+  return (
+    typeof p.clientHour === "number" &&
+    typeof p.clientMinute === "number" &&
+    typeof p.clientDayOfWeek === "number" &&
+    typeof p.clientYear === "number" &&
+    typeof p.clientMonth === "number" &&
+    typeof p.clientDate === "number"
+  );
 }
 
-function cleanText(s: unknown) {
-  return String(s || '')
-    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
-    .replace(/\[[\s\S]*?\]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+function buildClientSeedStamp(p: ClientPayload) {
+  return [
+    "client-time-v8.2",
+    p.clientTimestampMs,
+    p.clientTimeZone,
+    p.clientUtcOffsetMinutes,
+    p.clientYear,
+    p.clientMonth,
+    p.clientDate,
+    p.clientHour,
+    p.clientMinute,
+    p.clientSecond,
+    p.clientDayOfWeek,
+    p.clientTimeText,
+    p.clientDateText,
+  ].filter(v => v !== undefined && v !== null && v !== "").join("|");
 }
 
-function recentText(recent: ChatItem[] = []) {
-  return recent.slice(-4).map(m => `${m.role}:${m.text}`).join('\n')
+function buildClientLocalDate(p: ClientPayload): Date {
+  if (hasClientLocalTime(p)) {
+    const d = new Date(Date.UTC(
+      p.clientYear!,
+      p.clientMonth! - 1,
+      p.clientDate!,
+      p.clientHour!,
+      p.clientMinute!,
+      p.clientSecond ?? 0
+    ));
+
+    return new Proxy(d, {
+      get(target, prop, receiver) {
+        if (prop === "getHours") return () => p.clientHour!;
+        if (prop === "getMinutes") return () => p.clientMinute!;
+        if (prop === "getSeconds") return () => (p.clientSecond ?? 0);
+        if (prop === "getDay") return () => p.clientDayOfWeek!;
+        if (prop === "getDate") return () => p.clientDate!;
+        if (prop === "getMonth") return () => p.clientMonth! - 1;
+        if (prop === "getFullYear") return () => p.clientYear!;
+        if (prop === "toISOString") return () => buildClientSeedStamp(p);
+        return Reflect.get(target, prop, receiver);
+      }
+    });
+  }
+
+  if (p.clientTimestamp) {
+    const d = new Date(p.clientTimestamp);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  if (typeof p.clientTimestampMs === "number") {
+    const d = new Date(p.clientTimestampMs);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  return new Date();
 }
 
-function safeRecent(recent: ChatItem[] = []) {
-  const banned = /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|เรื่องสมมติ|จะจำไว้|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|รับทราบ|ยินดีช่วย|หัวใจสีแดง|อิโมจิหัวใจ)/i
-  return recent
-    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string')
-    .filter(m => !banned.test(m.text))
-    .slice(-6)
-    .map(m => ({ role: m.role, content: m.text }))
+function isTimeQuestion(message: string) {
+  return /(กี่โมง|กี่ทุ่ม|กี่นาฬิกา|เวลา.*เท่าไหร่|เวลา.*แล้ว|ตอนนี้.*โมง|ตอนนี้.*ทุ่ม|ตอนนี้.*เวลา|ตอนนี้กี่|ตอนนี้.*นาฬิกา|now.*time|what.*time)/i.test(message);
 }
 
-function detectIntent(message: string) {
-  const m = message.toLowerCase()
-  const aboutNam = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(m)
-
-  if (/(กี่โมง|กี่ทุ่ม|เวลาเท่าไหร่|ตอนนี้เวลา|ตอนนี้กี่|กี่นาฬิกา)/i.test(m)) return 'time_question'
-  if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่)/i.test(m)) return 'date_question'
-  if (/(เมื่อวาน|พรุ่งนี้|คืนพรุ่งนี้|เมื่อคืน|เมื่อเช้า)/i.test(m)) return 'relative_date_question'
-  if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
-  if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
-  if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
-  if (aboutNam && /(ทำอะไร|ทำไร|อยู่ไหน|ตอนนี้)/i.test(m)) return 'nam_activity'
-  if (/(ตอบผิด|คนละเรื่อง|ไม่ตรง|มั่ว|เหมือน ai|เหมือนหุ่นยนต์|น่าเบื่อ|ซ้ำ|load failed|เชื่อมต่อ|แข็ง|ยาว)/i.test(m)) return 'complaint'
-  if (/(แฟนเก่า|คนเก่า|เศร้า|เหนื่อย|ไม่ไหว|ร้องไห้|เหงา|โดนดุ|ป่วย|ไม่สบาย)/i.test(m)) return 'care'
-  if (/(หอม|กอด|จูบ|คิดถึง|รัก|อ้อน|แฟน|เดต|เดท)/i.test(m)) return 'flirt'
-  if (/(เซ็กซ์|มีอะไร|ทางเพศ|นอนด้วย|อยากได้เธอ)/i.test(m)) return 'romantic_physical'
-  return 'casual'
+function isDateQuestion(message: string) {
+  return /(วันนี้วันอะไร|วันนี้วันที่เท่าไหร่|วันนี้วันที่|วันที่เท่าไหร่|วันนี้คือวัน|พรุ่งนี้วันอะไร|เมื่อวานวันอะไร|เมื่อวานคือวัน|พรุ่งนี้คือวัน)/i.test(message);
 }
 
-function violates(reply: string) {
-  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ)/i.test(reply)
+function formatThaiTimeFromClient(p: ClientPayload) {
+  const hh = p.clientHour!;
+  const mm = p.clientMinute!;
+  const mmText = pad2(mm);
+
+  if (hh === 0) return `ตอนนี้เที่ยงคืน ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh > 0 && hh < 6) return `ตอนนี้ตี ${hh} ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh === 6) return `ตอนนี้หกโมงเช้า ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh > 6 && hh < 12) return `ตอนนี้ ${hh} โมงเช้า ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh === 12) return `ตอนนี้เที่ยง ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh > 12 && hh < 16) return `ตอนนี้บ่าย ${hh - 12} โมง ${mmText} นาทีแล้วค่ะพี่`;
+  if (hh >= 16 && hh < 18) return `ตอนนี้ ${hh - 12} โมงเย็น ${mmText} นาทีแล้วค่ะพี่`;
+  return `ตอนนี้ ${hh - 12} ทุ่ม ${mmText} นาทีแล้วค่ะพี่`;
 }
 
-function relativeDateReply(message: string, timeTruth: TimeTruthLite) {
-  const base = new Date()
-  base.setFullYear(timeTruth.year, timeTruth.month - 1, timeTruth.date)
-  base.setHours(timeTruth.hour, timeTruth.minute, timeTruth.second, 0)
+function relativeDateReply(message: string, p: ClientPayload) {
+  if (!hasClientLocalTime(p)) {
+    return "น้ำยังอ่านวันที่จากเครื่องพี่ไม่เจออะ ลองรีเฟรชหน้าเว็บก่อนนะคะ";
+  }
 
-  let offset = 0
-  if (/เมื่อวาน|เมื่อคืน|เมื่อเช้า/i.test(message)) offset = -1
-  if (/พรุ่งนี้|คืนพรุ่งนี้/i.test(message)) offset = 1
+  const base = new Date(p.clientYear!, p.clientMonth! - 1, p.clientDate!, p.clientHour!, p.clientMinute!, p.clientSecond ?? 0);
+  let offset = 0;
+  if (/เมื่อวาน|เมื่อคืน|เมื่อเช้า/i.test(message)) offset = -1;
+  if (/พรุ่งนี้|คืนพรุ่งนี้/i.test(message)) offset = 1;
 
-  const d = new Date(base)
-  d.setDate(base.getDate() + offset)
+  const d = new Date(base);
+  d.setDate(base.getDate() + offset);
 
-  const text = d.toLocaleDateString('th-TH', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
+  const text = d.toLocaleDateString("th-TH", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
-  if (offset === -1) return `เมื่อวานคือ ${text} พี่`
-  if (offset === 1) return `พรุ่งนี้คือ ${text} พี่`
-  return `วันนี้คือ ${timeTruth.thaiDateText} พี่`
+  if (offset === -1) return `เมื่อวานคือ ${text} ค่ะพี่`;
+  if (offset === 1) return `พรุ่งนี้คือ ${text} ค่ะพี่`;
+  return p.clientDateText ? `วันนี้คือ ${p.clientDateText} ค่ะพี่` : `วันนี้คือ ${text} ค่ะพี่`;
 }
 
-function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visibleStatus: any, dna: any, life: any, bodyAuto: any, sub: any, micro: any) {
-  const call = memory?.userCallName || 'พี่'
-  const intent = detectIntent(message)
-  const interjection = bodyAuto?.utterance?.swearPermission !== 'none' ? `${bodyAuto?.utterance?.interjection || 'อือ'} ` : ''
-
-  let reply = ''
-
-  if (intent === 'time_question') reply = `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`
-  else if (intent === 'date_question') reply = `วันนี้คือ ${timeTruth.thaiDateText} พี่`
-  else if (intent === 'relative_date_question') reply = relativeDateReply(message, timeTruth)
-  else if (intent === 'news_should_be_client') reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
-  else if (intent === 'reminder') reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
-  else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
-  else if (intent === 'nam_activity') reply = `${interjection}ตอนนี้น้ำ${life?.scene?.activity ? ' ' + String(life.scene.activity).split('แล้ว')[0].trim() : 'อยู่แถวห้อง'}อยู่`
-  else if (intent === 'nam_food') reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
-  else if (intent === 'complaint') reply = `${interjection}น้ำพลาดจริง เดี๋ยวตั้งหลักตอบให้ตรงกว่านี้`
-  else if (intent === 'care') reply = `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
-  else if (intent === 'flirt') reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
-  else if (intent === 'romantic_physical') reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
-  else reply = `${interjection}${call}พูดมา น้ำจะตอบให้ตรงกว่าเดิม`
-
-  if (sub) reply = compactHumanReply(reply, sub)
-  if (micro) reply = microCompactReply(reply, micro)
-  return reply
+function pickWeighted<T extends string>(items: Array<{ value: T; weight: number }>, r: number): T {
+  const valid = items.filter(i => i.weight > 0);
+  const total = valid.reduce((s, i) => s + i.weight, 0);
+  let x = r * total;
+  for (const item of valid) {
+    x -= item.weight;
+    if (x <= 0) return item.value;
+  }
+  return valid[valid.length - 1]?.value || items[0].value;
 }
 
-function buildSystemPrompt(params: any) {
-  const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth } = params
-  const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
-  const call = memory?.userCallName || 'พี่'
+/**
+ * buildVisibleStatus — v8.3
+ * เปลี่ยนจาก logic แบบล็อกตายตัวว่า "กลางคืน = ง่วงเสมอ"
+ * เป็น weighted status:
+ * - เวลาเป็นแค่แรงโน้มถ่วง ไม่ใช่คำตัดสิน 100%
+ * - ดึกมีโอกาสง่วง/หลับสูงขึ้น แต่ยังมีโอกาสตาสว่าง ทำงาน อ่านหนังสือ งอน หิว หรืออ้อน
+ */
+function buildVisibleStatus(ctx: any, roll: any, randomValue = 0.5) {
+  const hour = Number(ctx?.hour ?? 12);
+  const category = String(roll?.category || roll?.emotion || roll?.mood || "").toLowerCase();
+  const variant = String(roll?.variant || roll?.state || "").toLowerCase();
 
-  return `
-คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
-ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
+  const isGrumpy = category.includes("irrit") || variant.includes("grumpy") || variant.includes("sulky");
+  const isAffection = category.includes("affection") || category.includes("love") || variant.includes("clingy");
+  const isHunger = category.includes("hunger") || variant.includes("hungry");
+  const isBored = category.includes("bored") || variant.includes("bored");
 
-${summarizeTimeTruthForPrompt(timeTruth)}
+  const candidates: Array<{ value: string; weight: number }> = [
+    { value: "available", weight: 28 },
+    { value: "soft_busy", weight: 10 },
+    { value: "playful", weight: 10 },
+    { value: "romantic", weight: isAffection ? 22 : 8 },
+    { value: "sulky", weight: isGrumpy ? 28 : 6 },
+    { value: "hungry", weight: isHunger ? 28 : (hour >= 11 && hour < 14 ? 22 : hour >= 18 && hour < 21 ? 18 : 5) },
+    { value: "bored", weight: isBored ? 22 : 6 },
+    { value: "reading", weight: 7 },
+    { value: "working_late", weight: hour >= 22 || hour < 3 ? 14 : 4 },
+    { value: "sleepy", weight: hour >= 22 || hour < 5 ? 24 : hour >= 5 && hour < 8 ? 18 : 4 },
+    { value: "sleeping", weight: hour >= 1 && hour < 5 ? 18 : hour >= 23 || hour < 1 ? 8 : 1 },
+    { value: "just_woke", weight: hour >= 5 && hour < 8 ? 24 : 2 },
+  ];
 
-${summarizeDNAForPrompt(dna)}
+  const chosen = pickWeighted(candidates, randomValue);
 
-${summarizeVisibleStatusForPrompt(visibleStatus)}
-
-${summarizeHumanLifeSceneForPrompt(life)}
-
-${summarizeHumanBodyAutonomyForPrompt(bodyAuto)}
-
-${summarizeHumanCoreDesireForPrompt(core)}
-
-${summarizeDeepHumanLayerForPrompt(layer)}
-
-${summarizeHumanSubBranchForPrompt(sub)}
-
-${summarizeHumanMicroBranchForPrompt(micro)}
-
-กฎตอบ:
-- เวลาจริงจากเครื่องผู้ใช้คือ "${timeTruth.thaiDateTimeText}"
-- ถ้าถามเวลา ให้ตอบ "${timeTruth.thaiTimeText}" เท่านั้น ห้ามเดา
-- ถ้าถามวันนี้ ให้ตอบ "${timeTruth.thaiDateText}" เท่านั้น
-- ถ้าถามเมื่อวาน/พรุ่งนี้ ให้เทียบจาก date/month/year ใน Time Truth เท่านั้น
-- สถานะที่ผู้ใช้เห็นคือ "${visibleStatus.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
-- ตอบประเด็นล่าสุดก่อนเสมอ
-- ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
-- ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
-- ห้ามตอบว่า "รับทราบ จะจำไว้" แบบบอท
-- ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
-- ความยาวประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
-- ถ้าผู้ใช้ถามข่าว อย่าสรุปข่าวปลอมเอง ให้บอกว่าจะไปไล่ข่าวมาให้
-
-ข้อความล่าสุดของ${call}: ${message}
-
-ตอบเฉพาะคำพูดของ${name}เท่านั้น
-`.trim()
+  switch (chosen) {
+    case "sleeping":
+      return {
+        emoji: "😴",
+        label: "หลับอยู่",
+        detail: "แต่ถ้าพี่ปลุกจริง ๆ ก็อาจงัวเงียมาตอบ",
+        displayText: "😴 หลับอยู่ · ปลุกได้ถ้าสำคัญ",
+        availability: "sleeping",
+        chipClass: "status-sleeping",
+      };
+    case "sleepy":
+      return {
+        emoji: "🌙",
+        label: "ง่วงนิด ๆ",
+        detail: "ยังคุยได้ แต่อาจพูดช้าหรืออ้อนกว่าเดิม",
+        displayText: "🌙 ง่วงนิด ๆ · ยังพอคุยได้",
+        availability: "sleepy",
+        chipClass: "status-sleeping",
+      };
+    case "just_woke":
+      return {
+        emoji: "🌤️",
+        label: "เพิ่งตื่น",
+        detail: "สมองยังงัวเงีย แต่เริ่มรับรู้แล้ว",
+        displayText: "🌤️ เพิ่งตื่น · งัวเงียนิดหน่อย",
+        availability: "soft_limited",
+        chipClass: "status-low",
+      };
+    case "hungry":
+      return {
+        emoji: "🍚",
+        label: "เริ่มหิว",
+        detail: "ใจเริ่มไปอยู่กับของกิน",
+        displayText: "🍚 เริ่มหิว · คุยได้แต่อาจอ้อนของกิน",
+        availability: "available",
+        chipClass: "status-hungry",
+      };
+    case "sulky":
+      return {
+        emoji: "😗",
+        label: "งอนนิด ๆ",
+        detail: "ยังคุยได้ แต่อาจมีเถียงเบา ๆ",
+        displayText: "😗 งอนนิด ๆ · ต้องง้อนิดนึง",
+        availability: "available",
+        chipClass: "status-sulky",
+      };
+    case "romantic":
+      return {
+        emoji: "💕",
+        label: "อ้อนอยู่",
+        detail: "อยากคุยใกล้ ๆ มากกว่าคุยแบบทางการ",
+        displayText: "💕 อ้อนอยู่ · อยากคุยกับพี่",
+        availability: "available",
+        chipClass: "status-romantic",
+      };
+    case "working_late":
+      return {
+        emoji: "🖥️",
+        label: "ยังไม่นอน",
+        detail: "เหมือนติดอะไรอยู่ เลยยังไม่ยอมหลับ",
+        displayText: "🖥️ ยังไม่นอน · แวะคุยได้",
+        availability: "available",
+        chipClass: "status-busy",
+      };
+    case "reading":
+      return {
+        emoji: "📚",
+        label: "อ่านอะไรอยู่",
+        detail: "อยู่โหมดเงียบ ๆ แต่คุยได้",
+        displayText: "📚 อ่านอะไรอยู่ · เรียกได้เลย",
+        availability: "available",
+        chipClass: "status-care",
+      };
+    case "bored":
+      return {
+        emoji: "🫠",
+        label: "เบื่อนิด ๆ",
+        detail: "อยากให้พี่ชวนคุยอะไรแปลก ๆ",
+        displayText: "🫠 เบื่อนิด ๆ · ชวนคุยหน่อย",
+        availability: "available",
+        chipClass: "status-low",
+      };
+    case "playful":
+      return {
+        emoji: "😼",
+        label: "ขี้เล่น",
+        detail: "พร้อมแซว พร้อมหยอก",
+        displayText: "😼 ขี้เล่น · ระวังโดนแซว",
+        availability: "available",
+        chipClass: "status-care",
+      };
+    case "soft_busy":
+      return {
+        emoji: "💭",
+        label: "คิดอะไรอยู่",
+        detail: "ไม่ได้หายไป แค่ใจลอยนิดหน่อย",
+        displayText: "💭 คิดอะไรอยู่ · เรียกได้",
+        availability: "available",
+        chipClass: "status-busy",
+      };
+    default:
+      return {
+        emoji: "🟢",
+        label: "คุยได้",
+        detail: "อยู่ใกล้ ๆ พร้อมคุย",
+        displayText: "🟢 คุยได้ · อยู่ใกล้ ๆ พี่แล้ว",
+        availability: "available",
+        chipClass: "status-care",
+      };
+  }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Body
-    const message = String(body.message || '').trim()
-    const memory = body.memory || {}
-    const recent = Array.isArray(body.recent) ? body.recent : []
-    const mode = body.mode || memory.apiMode || 'api-light'
+    const body = (await req.json().catch(() => ({}))) as ClientPayload;
+    const message = String(body.message || "").trim();
 
-    if (!message) return json({ reply: 'อืม… พี่ยังไม่ได้พิมพ์อะไรเลยนะ', source: 'empty' })
-
-    const dna = ensureCompanionDNALite({
-      existingDNA: body.companionDNA || memory.companionDNA || null,
-      userId: memory.userId || memory.userName || memory.userCallName || body.clientNonce || 'local-user',
-      userName: memory.userName || memory.userCallName,
-      nongnamName: memory.nongnamName || 'น้องน้ำ',
-      gender: memory.nongnamGender || 'female',
-      age: memory.nongnamAge,
-      preferredPersonality: memory.preferredPersonality,
-    })
-
-    const timeTruth = buildTimeTruthLite(body)
-    const truthNow = timeTruthToBranchDate(timeTruth)
-    const recentString = recentText(recent)
-
-    const layer = buildDeepHumanLayerLite({ dna, message, recentText: recentString, adultMode: memory?.adultMode === true, now: truthNow })
-    const sub = buildHumanSubBranchLite({ dna, layer, message, recentText: recentString })
-    const micro = buildHumanMicroBranchLite({ dna, layer, sub, message, recentText: recentString })
-    const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message, recentText: recentString, now: truthNow })
-    const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message, recentText: recentString, now: truthNow })
-    const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString, now: truthNow })
-    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
-
-    const intent = detectIntent(message)
-    if (intent === 'time_question' || intent === 'date_question' || intent === 'relative_date_question') {
-      return json({
-        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
-        companionDNA: dna,
-        timeTruth,
-        visibleStatus,
-        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'time-truth-direct-v11.15.5',
-      })
+    if (!message) {
+      return NextResponse.json({
+        reply: "อืม... พี่ยังไม่ได้พิมพ์อะไรเลยนะ",
+        source: "validation-error",
+      });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey || mode === 'local') {
-      return json({
-        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
-        companionDNA: dna,
-        timeTruth,
-        visibleStatus,
-        humanLayer: layer,
-        humanSubBranch: sub,
-        humanMicroBranch: micro,
-        humanLifeScene: life,
-        humanBodyAutonomy: bodyAuto,
-        humanCoreDesire: core,
-        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'local-v11.15.5',
-      })
+    const m = body.memory || {};
+    const dna = buildDNA({
+      userCallName: m.userCallName || "พี่",
+      nongnamName: m.nongnamName || "น้องน้ำ",
+      relationshipMode: m.relationshipMode || "แฟน/คนรัก",
+      personalityStyle: m.personalityStyle,
+      sulkyLevel: m.sulkyLevel,
+      jealousLevel: m.jealousLevel,
+      affectionStyle: m.affectionStyle,
+      gender: m.gender,
+    });
+
+    const memory: CompanionMemory = {
+      lastMood: undefined,
+      lastTopic: undefined,
+      socialBattery: m.socialBattery ?? 70,
+      affectionScore: m.affectionScore ?? dna.baseAffection,
+      recentMentions: m.recentMentions || [],
+      facts: m.facts || [],
+      schedules: m.schedules || [],
+    };
+
+    const timestamp = buildClientLocalDate(body);
+    const ctx = buildRollContext(timestamp, dna, memory, message);
+    const hasClientTime = hasClientLocalTime(body);
+
+    if (isTimeQuestion(message)) {
+      if (!hasClientTime) {
+        return NextResponse.json({
+          reply: "เอ๊ะ... น้ำเช็คเวลาในเครื่องพี่ไม่เจออะ ลองรีเฟรชหน้าเว็บก่อนนะคะ ระบบเวลาอาจยังไม่เชื่อม",
+          source: "time-not-connected",
+          warning: "client time not sent — page.tsx must include getClientTimePayload()",
+          debugClientTime: {
+            clientHour: body.clientHour,
+            clientMinute: body.clientMinute,
+            clientTimeText: body.clientTimeText,
+            clientTimeZone: body.clientTimeZone,
+          },
+        });
+      }
+
+      return NextResponse.json({
+        reply: formatThaiTimeFromClient(body),
+        source: "time-truth-direct-v8.2",
+        clientTime: {
+          hour: body.clientHour,
+          minute: body.clientMinute,
+          second: body.clientSecond,
+          timeZone: body.clientTimeZone,
+          text: body.clientTimeText,
+          date: body.clientDateText,
+          seedStamp: buildClientSeedStamp(body),
+        },
+      });
     }
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    if (isDateQuestion(message)) {
+      return NextResponse.json({
+        reply: relativeDateReply(message, body),
+        source: "date-truth-direct-v8.2",
+        clientTime: {
+          date: body.clientDateText,
+          dateTime: body.clientDateTimeText,
+          timeZone: body.clientTimeZone,
+          seedStamp: buildClientSeedStamp(body),
+        },
+      });
+    }
+
+    const routed = routeToTree(ctx);
+
+    const clientSeedStamp = buildClientSeedStamp(body);
+    const seed = makeSeed([
+      dna.fingerprint,
+      clientSeedStamp || timestamp.toISOString(),
+      message,
+      memory.affectionScore,
+      memory.socialBattery,
+      ctx.hour,
+      ctx.dayOfWeek,
+    ]);
+
+    const random = seededRandom(seed);
+    const roll = rollTree(routed.layers, ctx, random);
+    const statusRandom = random();
+    const visibleStatus = buildVisibleStatus(ctx, roll, statusRandom);
+
+    let systemPrompt = buildHumanPrompt({
+      treeName: routed.name,
+      roll,
+      ctx,
+      dna,
+      memory,
+    });
+
+    if (hasClientTime) {
+      systemPrompt += `\n\n[CLIENT TIME TRUTH + TREE SEED]
+เวลาจริงจากเครื่องของ${dna.speechStyle.callName}: ${body.clientDateTimeText || `${body.clientDateText || ""} เวลา ${body.clientTimeText || ""}`}
+Time Zone: ${body.clientTimeZone || "unknown"}
+Client Seed Stamp: ${clientSeedStamp}
+ctx.hour=${ctx.hour}
+ctx.dayOfWeek=${ctx.dayOfWeek}
+ห้ามใช้เวลา server, UTC, Vercel หรือเวลาอเมริกาเด็ดขาด
+ถ้าจะอ้างเวลา/สภาพร่างกาย/ง่วง/หิว/กำลังทำอะไร ให้ยึดเวลานี้และ ctx นี้เท่านั้น`;
+    } else {
+      systemPrompt += `\n\n[CLIENT TIME WARNING]
+เวลาจากเครื่องผู้ใช้ยังไม่ถูกส่งเข้าระบบ ห้ามเดาเวลาจาก server`;
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json({
+        reply: "⚠️ ยังไม่ได้ตั้ง OPENAI_API_KEY ที่ Vercel Environment Variables",
+        source: "no-api-key",
+        treeName: routed.name,
+        roll,
+        visibleStatus,
+      });
+    }
+
+    const recentMsgs = Array.isArray(body.recent)
+      ? body.recent.slice(-6).map(r => ({
+          role: r.role === "assistant" ? "assistant" : "user",
+          content: String(r.text || "").slice(0, 500),
+        }))
+      : [];
+
+    const lengthLimit = roll.length === "very_short" ? 60
+      : roll.length === "short" ? 120
+      : roll.length === "medium" ? 200
+      : 320;
+
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) },
-          ...safeRecent(recent),
-          { role: 'user', content: message },
+          { role: "system", content: systemPrompt },
+          ...recentMsgs,
+          { role: "user", content: message },
         ],
-        temperature: mode === 'api-deep' ? 0.97 : 0.92,
-        max_tokens: mode === 'api-deep' ? 450 : 255,
-        presence_penalty: 0.68,
-        frequency_penalty: 1.12,
+        temperature: 0.95,
+        max_tokens: lengthLimit,
+        presence_penalty: 0.5,
+        frequency_penalty: 0.7,
       }),
-      cache: 'no-store',
-    })
+      cache: "no-store",
+    });
 
-    if (!res.ok) {
-      return json({
-        reply: localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro),
-        companionDNA: dna,
-        timeTruth,
+    const data = await r.json();
+
+    if (!r.ok) {
+      return NextResponse.json({
+        reply: `⚠️ OpenAI error: ${data?.error?.message || "unknown"}`,
+        source: "openai-error",
+        error: data?.error?.message,
+        treeName: routed.name,
+        roll,
         visibleStatus,
-        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-        source: 'api-error-v11.15.5',
-        status: res.status,
-      })
+      });
     }
 
-    const data = await res.json()
-    let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro)
-    reply = compactHumanReply(reply, sub)
-    reply = microCompactReply(reply, micro)
+    let reply = data?.choices?.[0]?.message?.content?.trim() || "";
+    reply = sanitizeReply(reply);
 
-    return json({
+    return NextResponse.json({
       reply,
-      companionDNA: dna,
-      timeTruth,
+      source: "human-tree-v8.2-client-time-seed",
+      treeName: routed.name,
+      roll,
       visibleStatus,
-      humanLayer: layer,
-      humanSubBranch: sub,
-      humanMicroBranch: micro,
-      humanLifeScene: life,
-      humanBodyAutonomy: bodyAuto,
-      humanCoreDesire: core,
-      updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'openai-v11.15.5',
-    })
-  } catch (error) {
-    return json({
-      reply: 'เอ้า… สะดุดอีกแล้ว พี่พิมพ์มาใหม่ที น้ำตั้งหลักแป๊บนึง',
-      error: error instanceof Error ? error.message : 'unknown_error',
-      source: 'route-error',
-    }, 200)
+      seed: seed.toString(36),
+      clientTime: hasClientTime ? {
+        hour: body.clientHour,
+        minute: body.clientMinute,
+        second: body.clientSecond,
+        timeZone: body.clientTimeZone,
+        text: body.clientTimeText,
+        date: body.clientDateText,
+        seedStamp: clientSeedStamp,
+      } : null,
+      usage: data?.usage,
+    });
+  } catch (err: any) {
+    return NextResponse.json({
+      reply: `⚠️ Server error: ${err?.message || "unknown"}`,
+      source: "server-error",
+      error: err?.message,
+    });
   }
+}
+
+function sanitizeReply(text: string): string {
+  return text
+    .replace(/^น้องน้ำ\s*[:：]\s*/i, "")
+    .replace(/^น้ำ\s*[:：]\s*/i, "")
+    .replace(/มีอะไรให้ช่วยไหม[คะ?]*/g, "")
+    .replace(/ยินดีช่วย[คะ.]*/g, "")
+    .replace(/ในฐานะ\s*AI/gi, "")
+    .replace(/ค่ะค่ะ/g, "ค่ะ")
+    .replace(/ครับครับ/g, "ครับ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
