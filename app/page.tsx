@@ -261,6 +261,76 @@ const defaultBooks: BookItem[] = [
 ];
 const baseBookCategories = ["ทั้งหมด", "กำลังใจ", "ก่อนนอน", "เรื่องผี", "ความรัก", "พัฒนาตัวเอง", "นิทาน", "ผ่อนคลาย", "อีโรติก 18+"];
 
+
+/**
+ * getClientTimePayload — minimal fixed version
+ * บังคับใช้เวลาเกาหลี Asia/Seoul
+ * ส่ง field ให้ตรงกับ app/api/chat/route.ts เวอร์ชันใหม่
+ */
+function getClientTimePayload() {
+  const now = new Date();
+  const timeZone = "Asia/Seoul";
+
+  const clientTimeText = now.toLocaleTimeString("th-TH", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const clientDateText = now.toLocaleDateString("th-TH", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || "";
+
+  const clientYear = Number(get("year"));
+  const clientMonth = Number(get("month"));
+  const clientDate = Number(get("day"));
+  const rawHour = Number(get("hour"));
+  const clientHour = rawHour === 24 ? 0 : rawHour;
+  const clientMinute = Number(get("minute"));
+  const clientSecond = Number(get("second"));
+
+  const seoulDateForDay = new Date(Date.UTC(clientYear, clientMonth - 1, clientDate));
+  const clientDayOfWeek = seoulDateForDay.getUTCDay();
+
+  return {
+    clientTimestampMs: now.getTime(),
+    clientNowISO: now.toISOString(),
+
+    clientTimeZone: timeZone,
+    clientUtcOffsetMinutes: 540,
+
+    clientHour,
+    clientMinute,
+    clientSecond,
+    clientDayOfWeek,
+    clientYear,
+    clientMonth,
+    clientDate,
+
+    clientTimeText,
+    clientDateText,
+    clientDateTimeText: `${clientDateText} เวลา ${clientTimeText}`,
+  };
+}
+
 function loadJSON<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -280,6 +350,7 @@ export default function Page() {
   const [chat, setChat] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState<"idle" | "thinking" | "speaking" | "recording">("idle");
+  const [visibleStatus, setVisibleStatus] = useState<any>(null);
   const [reading, setReading] = useState<ReadingSession | null>(null);
   const [tab, setTab] = useState<Category>("regular");
   const [notice, setNotice] = useState("");
@@ -653,8 +724,8 @@ export default function Page() {
               socialBattery: 70, // TODO: คำนวณจริงตามเวลา/การใช้งาน
             },
             recent: chat.slice(-6).map(c => ({ role: c.role, text: c.text })),
-            clientTimestamp: new Date().toISOString(),
             clientNonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            ...getClientTimePayload(),
           };
           const r = await fetch("/api/chat", {
             method: "POST",
@@ -664,6 +735,7 @@ export default function Page() {
           const data = await r.json();
           reply = data?.reply || "(AI ไม่ตอบกลับ)";
           source = data?.source || "unknown";
+          if (data?.visibleStatus) setVisibleStatus(data.visibleStatus);
 
           // แสดงเตือนชัดเจนถ้าไม่ใช่ AI จริง
           if (source === "no-api-key") {
@@ -1123,7 +1195,7 @@ export default function Page() {
             <img className={`hero-img ${status==="speaking" || reading?.status==="reading" ? "alive" : ""}`} style={{transform:`scale(${zoom})`}} src={chatImage} alt="nongnam"/>
             <div className="topbar">
               <button onClick={()=>setScreen("welcome")}>‹</button>
-              <div><b>{mem.nongnamName}</b><small>● พร้อมคุยกับ{mem.userCallName}แล้ว</small></div>
+              <div><b>{mem.nongnamName}</b><small>{visibleStatus?.displayText || `● พร้อมคุยกับ${mem.userCallName}แล้ว`}</small></div>
               <button onClick={toggleVoice}>{mem.voiceUnlocked ? "🔊" : "🔇"}</button>
               <button onClick={()=>setScreen("settings")}>⚙️</button>
             </div>
