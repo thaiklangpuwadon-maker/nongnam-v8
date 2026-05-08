@@ -54,6 +54,30 @@ input, select { width:100%; padding:13px 14px; border-radius:16px; border:1px so
 .side button { width:64px; min-height:58px; font-size:21px; color:#d64e86; font-weight:800; }
 .side span { display:block; font-size:11px; margin-top:2px; color:#7b5e70; }
 .status { position:absolute; z-index:4; bottom:178px; left:50%; transform:translateX(-50%); background:rgba(35,30,35,.62); color:white; border-radius:999px; padding:8px 14px; font-size:13px; min-height:31px; min-width:120px; text-align:center; }
+
+/* v8.4: Typing dots animation */
+.status .dots { display: inline-block; margin-left: 4px; }
+.status .dots span {
+  display: inline-block;
+  opacity: 0.3;
+  animation: typingDot 1.4s infinite;
+}
+.status .dots span:nth-child(1) { animation-delay: 0s; }
+.status .dots span:nth-child(2) { animation-delay: 0.2s; }
+.status .dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typingDot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* v8.4: Bubble fade-in */
+.bubble {
+  animation: bubbleFadeIn 0.3s ease-out;
+}
+@keyframes bubbleFadeIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .bubbles { position:absolute; z-index:4; left:16px; right:82px; bottom:190px; max-height:30vh; display:flex; flex-direction:column; justify-content:flex-end; gap:8px; pointer-events:auto; overflow-y:auto; scrollbar-width:none; mask-image:linear-gradient(180deg, transparent 0%, black 20%, black 100%); }
 .bubbles:active .bubble, .bubbles:hover .bubble { opacity:1!important; }
 .bubble { max-width:100%; padding:12px 14px; border-radius:18px; line-height:1.35; box-shadow:0 10px 25px rgba(80,40,60,.08); animation:floatIn .28s ease both; opacity:1; }
@@ -425,3 +449,4 @@ textarea { width:100%; padding:13px 14px; border-radius:16px; border:1px solid #
 .settingCard{display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:18px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.75);margin:12px 0}
 .settingCard button{border:0;border-radius:14px;padding:10px 12px;background:#fff;color:#6b4c5f;font-weight:800;box-shadow:0 8px 20px rgba(70,40,70,.08)}
 .settingCard .tiny{font-size:12px;color:#856b7a;line-height:1.35}
+

@@ -207,6 +207,148 @@ function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visi
   return reply
 }
 
+// v8.4: ============== BUBBLE SPLITTER ENGINE ==============
+type Bubble = { text: string; delay: number }
+type BubbleStyle = 'single' | 'thinking' | 'rapid' | 'slow_drip' | 'self_correct' | 'natural'
+
+/**
+ * detectBubbleStyle — เลือก style จาก intent + content
+ */
+function detectBubbleStyle(reply: string, intent: string, message: string): BubbleStyle {
+  // intent ที่ต้องตอบสั้นๆ → single
+  if (intent === 'time_question' || intent === 'date_question' || intent === 'relative_date_question') {
+    return 'single'
+  }
+  if (intent === 'news_should_be_client' || intent === 'reminder') {
+    return 'single'
+  }
+
+  // ตอบสั้นมาก (น้อยกว่า 25 ตัวอักษร) → single
+  if (reply.length < 25) return 'single'
+
+  // เถียง/หงุดหงิด/งอน → rapid
+  if (/(ไม่จริง|เถียง|งอน|รำคาญ|หึง|ดราม่า|ไม่ใช่|ฮึ่ม|เซ็ง|หงุดหงิด)/.test(reply)) {
+    return 'rapid'
+  }
+  if (intent === 'complaint' && /(แรง|ดุ|งอน|ดราม่า)/.test(reply)) {
+    return 'rapid'
+  }
+
+  // หวาน/ห่วง/รัก → slow_drip
+  if (/(รัก|คิดถึง|กอด|หอม|ห่วง|จุ๊บ|ที่รัก|พี่จ๋า|พี่จ๊ะ)/.test(reply)) {
+    return 'slow_drip'
+  }
+  if (intent === 'flirt' || intent === 'care') {
+    return 'slow_drip'
+  }
+
+  // เริ่มด้วย "อืม" "เอ๊ะ" "เดี๋ยว" → thinking
+  if (/^(อืม|เอ๊ะ|เดี๋ยว|เอ่อ|งืม)/.test(reply)) {
+    return 'thinking'
+  }
+
+  // มี "เอ๊ย ไม่ใช่" / "เปลี่ยนใจ" → self_correct
+  if (/(เอ๊ย|ไม่ใช่อะ|เปลี่ยนใจ|จริงๆ คือ)/.test(reply)) {
+    return 'self_correct'
+  }
+
+  return 'natural'
+}
+
+/**
+ * splitIntoBubbles — ตัดคำตอบเป็นหลาย bubbles ตาม style
+ */
+function splitIntoBubbles(reply: string, style: BubbleStyle): Bubble[] {
+  const text = reply.trim()
+  if (!text) return [{ text: 'อืม...', delay: 0 }]
+
+  // single = ส่งทั้งก้อน
+  if (style === 'single') {
+    return [{ text, delay: 0 }]
+  }
+
+  // หา natural break points: ., ?, !, แต่, ก็, มา
+  const sentences = splitSentences(text)
+  if (sentences.length <= 1) {
+    // ไม่มี break point ชัด → ส่ง single
+    return [{ text, delay: 0 }]
+  }
+
+  // limit max 5 bubbles เพื่อไม่ให้รำคาญ
+  const limited = sentences.slice(0, 5)
+
+  switch (style) {
+    case 'rapid':
+      return limited.map((s, i) => ({
+        text: s,
+        delay: i === 0 ? 0 : 350 + Math.random() * 200, // 350-550ms รัวๆ
+      }))
+
+    case 'thinking':
+      return limited.map((s, i) => {
+        if (i === 0) return { text: s, delay: 0 }
+        // bubble แรกๆ มี pause ยาว (กำลังคิด) แล้วค่อยเร็วขึ้น
+        const baseDelay = i === 1 ? 1800 : 1200
+        const sentenceLength = s.length * 35 // ใช้เวลาพิมพ์ 35ms ต่อตัวอักษร
+        return { text: s, delay: baseDelay + Math.min(1500, sentenceLength) }
+      })
+
+    case 'slow_drip':
+      return limited.map((s, i) => {
+        if (i === 0) return { text: s, delay: 0 }
+        const sentenceLength = s.length * 45 // ช้าลง อบอุ่น
+        return { text: s, delay: 1500 + Math.min(2000, sentenceLength) }
+      })
+
+    case 'self_correct':
+      return limited.map((s, i) => {
+        if (i === 0) return { text: s, delay: 0 }
+        // มี pause ยาวก่อนแก้
+        if (/(เอ๊ย|ไม่ใช่|เปลี่ยนใจ|จริงๆ)/.test(s)) {
+          return { text: s, delay: 2000 }
+        }
+        return { text: s, delay: 1200 + s.length * 30 }
+      })
+
+    case 'natural':
+    default:
+      return limited.map((s, i) => {
+        if (i === 0) return { text: s, delay: 0 }
+        const sentenceLength = s.length * 40
+        return { text: s, delay: 800 + Math.min(1800, sentenceLength) }
+      })
+  }
+}
+
+/**
+ * splitSentences — ตัดประโยคแบบเข้าใจภาษาไทย
+ */
+function splitSentences(text: string): string[] {
+  // step 1: ตัดด้วย punctuation
+  const result: string[] = []
+  const parts = text.split(/(?<=[.!?。！？])\s+|(?<=[.!?])(?=\S)/g)
+
+  for (const part of parts) {
+    const t = part.trim()
+    if (!t) continue
+
+    // ถ้าประโยคยาวเกิน 50 ตัวอักษร → ลองตัดที่ "แต่" "ก็" "เลย"
+    if (t.length > 50) {
+      const subParts = t.split(/\s+(?=(?:แต่|แล้วก็|ก็เลย|ถ้า|พอ))/g)
+      for (const sub of subParts) {
+        const s = sub.trim()
+        if (s) result.push(s)
+      }
+    } else {
+      result.push(t)
+    }
+  }
+
+  return result.filter(s => s.length > 0)
+}
+
+// v8.4: ============== END BUBBLE SPLITTER ==============
+
 function buildSystemPrompt(params: any) {
   const { memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth } = params
   const name = dna.displayName || memory?.nongnamName || 'น้องน้ำ'
@@ -381,8 +523,14 @@ export async function POST(req: NextRequest) {
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
+    // v8.4: ตัดเป็น bubbles
+    const bubbleStyle = detectBubbleStyle(reply, intent, message)
+    const bubbles = splitIntoBubbles(reply, bubbleStyle)
+
     return json({
       reply,
+      bubbles,           // v8.4: array of { text, delay }
+      bubbleStyle,       // v8.4: debug
       companionDNA: dna,
       timeTruth,
       visibleStatus,

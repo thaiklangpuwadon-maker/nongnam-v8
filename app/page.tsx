@@ -82,7 +82,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v8.0-human-signature-tree";
+const APP_VERSION = "v8.4-multi-bubble";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -600,6 +600,42 @@ export default function Page() {
     speak(text);
   }
 
+  // v8.4: ทยอยแสดง bubbles ตาม delay + typing indicator
+  function sendAssistantBubbles(bubbles: { text: string; delay: number }[]) {
+    if (!bubbles || bubbles.length === 0) return;
+    if (bubbles.length === 1) {
+      // ถ้ามี bubble เดียว → แสดงเป็นปกติ
+      sendAssistant(bubbles[0].text);
+      return;
+    }
+
+    // ทยอยส่งทีละ bubble
+    let cumulativeDelay = 0;
+    const fullText: string[] = [];
+
+    bubbles.forEach((bubble, index) => {
+      cumulativeDelay += bubble.delay;
+      // แสดง typing indicator ก่อน bubble (ยกเว้น bubble แรก)
+      if (index > 0) {
+        const typingShowDelay = cumulativeDelay - 600; // โชว์จุดๆ 600ms ก่อน
+        setTimeout(() => {
+          if (typingShowDelay >= 0) setStatus("thinking");
+        }, Math.max(0, typingShowDelay));
+      }
+      // แสดง bubble จริง
+      setTimeout(() => {
+        setChat(prev => [...prev, { role: "assistant" as const, text: bubble.text, ts: Date.now() + index }].slice(-8));
+        fullText.push(bubble.text);
+        if (index === bubbles.length - 1) {
+          // bubble สุดท้าย → หยุด typing + พูดทั้งก้อน
+          setStatus("idle");
+          // TTS อ่านทั้งหมดต่อกัน
+          speak(fullText.join(" "));
+        }
+      }, cumulativeDelay);
+    });
+  }
+
   function localReply(msg: string) {
     const name = mem.nongnamName || "น้องน้ำ";
     const user = mem.userCallName || "พี่";
@@ -705,6 +741,7 @@ export default function Page() {
         // 4. call /api/chat — v8 Human Signature Tree Engine
         let reply: string;
         let source: string = "unknown";
+        let bubbles: { text: string; delay: number }[] | null = null;
         try {
           const v8Payload = {
             message: realMsg,
@@ -735,6 +772,10 @@ export default function Page() {
           const data = await r.json();
           reply = data?.reply || "(AI ไม่ตอบกลับ)";
           source = data?.source || "unknown";
+          // v8.4: ดึง bubbles ถ้ามี
+          if (Array.isArray(data?.bubbles) && data.bubbles.length > 0) {
+            bubbles = data.bubbles;
+          }
           if (data?.visibleStatus) setVisibleStatus(data.visibleStatus);
 
           // แสดงเตือนชัดเจนถ้าไม่ใช่ AI จริง
@@ -749,8 +790,13 @@ export default function Page() {
         }
 
         await appendChat({ role: "assistant", text: reply, ts: Date.now() });
-        sendAssistant(reply);
-        setStatus("idle");
+        // v8.4: ใช้ multi-bubble ถ้ามี ไม่งั้น fallback เป็น single
+        if (bubbles && bubbles.length > 1) {
+          sendAssistantBubbles(bubbles);
+        } else {
+          sendAssistant(reply);
+          setStatus("idle");
+        }
       } catch (err: any) {
         sendAssistant(`⚠️ Memory engine error: ${err?.message || "unknown"}`);
         setStatus("idle");
@@ -1206,7 +1252,7 @@ export default function Page() {
               <button onClick={()=>setZoom(z=>Math.min(1.7, z+.15))}>＋</button>
               <button onClick={()=>setZoom(z=>Math.max(.85, z-.15))}>－</button>
             </div>
-            <div className="status">{status==="thinking"?"น้องน้ำกำลังคิด...":status==="speaking"?"น้องน้ำกำลังพูด...":status==="recording"?"กำลังฟังเสียง...":" "}</div>
+            <div className="status">{status==="thinking"?<><span>{mem.nongnamName}กำลังพิมพ์</span><span className="dots"><span>.</span><span>.</span><span>.</span></span></>:status==="speaking"?`${mem.nongnamName}กำลังพูด...`:status==="recording"?"กำลังฟังเสียง...":" "}</div>
             {reading && (
               <div className="readingPanel">
                 <div className="readingTitle">📖 {reading.title}</div>
@@ -1447,3 +1493,4 @@ export default function Page() {
     </main>
   );
 }
+
