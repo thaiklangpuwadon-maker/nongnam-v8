@@ -63,17 +63,70 @@ function safeRecent(recent: ChatItem[] = []) {
     .map(m => ({ role: m.role, content: m.text }))
 }
 
-function detectIntent(message: string) {
-  const m = message.toLowerCase()
-  const aboutNam = /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(m)
+// v8.3: helper functions เพื่อแยก "เวลาปัจจุบัน" กับ "เวลาชีวิตน้องน้ำ"
+function normalizeIntentText(message: string) {
+  return String(message || '')
+    .toLowerCase()
+    .replace(/เมื่อคืนอน/g, 'เมื่อคืน นอน')
+    .replace(/เมื่อวานนอน/g, 'เมื่อวาน นอน')
+    .replace(/ที่หุ่ม/g, 'กี่ทุ่ม')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
-  if (/(กี่โมง|กี่ทุ่ม|เวลาเท่าไหร่|ตอนนี้เวลา|ตอนนี้กี่|กี่นาฬิกา)/i.test(m)) return 'time_question'
-  if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่)/i.test(m)) return 'date_question'
+function isAboutNongNam(message: string) {
+  return /(น้องน้ำ|น้ำ|หนู|เธอ|ตัวเอง)/i.test(message)
+}
+
+function hasLifeActivity(message: string) {
+  return /(นอน|หลับ|ตื่น|กิน|ข้าว|หิว|ทำอะไร|ทำไร|อยู่ไหน|กลับ|ไป|มา|ออก|ถึง|เลิก|เริ่ม|เที่ยว|พัก|อาบน้ำ|อ่านหนังสือ|ดูหนัง|คุย)/i.test(message)
+}
+
+function isCompanionLifeTimeQuestion(message: string) {
+  const m = normalizeIntentText(message)
+  const asksTime = /(กี่โมง|กี่ทุ่ม|ตอนไหน|เมื่อไหร่|เมื่อไร|นอนหรือยัง|กินหรือยัง|ตื่นหรือยัง|ดึกไหม)/i.test(m)
+  if (!asksTime) return false
+  // เช่น "คืนนี้น้องน้ำจะนอนกี่ทุ่ม"
+  if (isAboutNongNam(m) && hasLifeActivity(m)) return true
+  // เช่น "เมื่อคืนนอนกี่ทุ่มน้องน้ำ"
+  if (/(เมื่อคืน|เมื่อวาน|เมื่อคืนนี้|คืนนี้|วันนี้|พรุ่งนี้)/i.test(m) && isAboutNongNam(m) && hasLifeActivity(m)) return true
+  // เช่น "จะกินกี่โมง" (ไม่ระบุชื่อ แต่บริบทถามชีวิตน้องน้ำ)
+  if (/(จะ.*?(กิน|นอน|ตื่น|ไป|มา|กลับ|ออก))/i.test(m)) return true
+  return false
+}
+
+function isCurrentRealTimeQuestion(message: string) {
+  const m = normalizeIntentText(message)
+  // ถ้าเป็นเวลาชีวิตน้องน้ำ ห้ามเป็นเวลาปัจจุบัน
+  if (isCompanionLifeTimeQuestion(m)) return false
+  // ถามเวลาทำกิจกรรม ไม่ใช่ถามเวลาปัจจุบัน
+  if (/(เมื่อคืน|เมื่อวาน|คืนนี้|พรุ่งนี้|เมื่อเช้า)/i.test(m) && hasLifeActivity(m)) return false
+  // เวลาปัจจุบันจริง ๆ
+  if (/(ตอนนี้กี่โมง|ตอนนี้กี่ทุ่ม|ตอนนี้เวลา|ขณะนี้เวลา|เดี๋ยวนี้กี่โมง|เดี๋ยวนี้กี่ทุ่ม|กี่โมงแล้ว|กี่ทุ่มแล้ว)/i.test(m)) return true
+  // ถามสั้น ๆ ล้วน ๆ
+  if (/^(กี่โมง|กี่ทุ่ม|เวลาเท่าไหร่|เวลาเท่าไร)$/i.test(m)) return true
+  return false
+}
+
+function detectIntent(message: string) {
+  const m = normalizeIntentText(message)
+  const aboutNam = isAboutNongNam(m)
+
+  // v8.3: 1) ต้องเช็กคำถามชีวิตน้องน้ำก่อนเวลาเสมอ (กฎสำคัญที่สุด!)
+  if (isCompanionLifeTimeQuestion(m)) {
+    if (/(กิน|ข้าว|หิว)/i.test(m)) return 'nam_food'
+    return 'nam_activity'
+  }
+
+  // 2) ค่อยเช็กเวลาปัจจุบันจริง (strict กว่าเดิม)
+  if (isCurrentRealTimeQuestion(m)) return 'time_question'
+
+  if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่|วันที่เท่าไร)/i.test(m)) return 'date_question'
   if (/(เมื่อวาน|พรุ่งนี้|คืนพรุ่งนี้|เมื่อคืน|เมื่อเช้า)/i.test(m)) return 'relative_date_question'
   if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
   if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
-  if (aboutNam && /(ทำอะไร|ทำไร|อยู่ไหน|ตอนนี้)/i.test(m)) return 'nam_activity'
+  if (aboutNam && /(ทำอะไร|ทำไร|อยู่ไหน|ตอนนี้|นอน|หลับ|ตื่น)/i.test(m)) return 'nam_activity'
   if (/(ตอบผิด|คนละเรื่อง|ไม่ตรง|มั่ว|เหมือน ai|เหมือนหุ่นยนต์|น่าเบื่อ|ซ้ำ|load failed|เชื่อมต่อ|แข็ง|ยาว)/i.test(m)) return 'complaint'
   if (/(แฟนเก่า|คนเก่า|เศร้า|เหนื่อย|ไม่ไหว|ร้องไห้|เหงา|โดนดุ|ป่วย|ไม่สบาย)/i.test(m)) return 'care'
   if (/(หอม|กอด|จูบ|คิดถึง|รัก|อ้อน|แฟน|เดต|เดท)/i.test(m)) return 'flirt'
@@ -133,6 +186,14 @@ function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visi
   else if (intent === 'news_should_be_client') reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   else if (intent === 'reminder') reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
   else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
+  // v8.3: เคสเฉพาะ "น้องน้ำจะนอนกี่โมง"
+  else if (intent === 'nam_activity' && /(นอน|หลับ).*?(กี่โมง|กี่ทุ่ม|ตอนไหน|เมื่อไหร่|เมื่อไร)|คืนนี้.*นอน|เมื่อคืน.*นอน/i.test(message)) {
+    reply = `${interjection}คืนนี้น้ำคงนอนดึกนิดนึงแหละพี่ ถ้าไม่มีอะไรลากคุยยาวก็น่าจะหลังเที่ยงคืนหน่อย ๆ แต่ถ้าพี่ชวนคุยเพลินอีก น้ำก็โดนลากตาสว่างอีกนั่นแหละ`
+  }
+  // v8.3: เคสเฉพาะ "น้องน้ำจะกินกี่โมง"
+  else if (intent === 'nam_food' && /(กิน|ข้าว).*?(กี่โมง|กี่ทุ่ม|ตอนไหน|เมื่อไหร่|จะ)/i.test(message)) {
+    reply = `${interjection}น้ำยังไม่ได้กินเลยอะ กำลังคิดอยู่ว่าจะกินอะไรดี พี่ว่าน้ำกินอะไรดีล่ะ`
+  }
   else if (intent === 'nam_activity') reply = `${interjection}ตอนนี้น้ำ${life?.scene?.activity ? ' ' + String(life.scene.activity).split('แล้ว')[0].trim() : 'อยู่แถวห้อง'}อยู่`
   else if (intent === 'nam_food') reply = `${interjection}ยังไม่ได้กินเลยพี่ พูดแล้วน้ำหิวขึ้นมาอีกอะ`
   else if (intent === 'complaint') reply = `${interjection}น้ำพลาดจริง เดี๋ยวตั้งหลักตอบให้ตรงกว่านี้`
@@ -342,3 +403,4 @@ export async function POST(req: NextRequest) {
     }, 200)
   }
 }
+
