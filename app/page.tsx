@@ -72,6 +72,27 @@ type ChatMsg = { role: "user" | "assistant"; text: string; ts: number };
 
 type ApiMode = "local" | "api-light" | "api-deep" | "api-search";
 
+// v8.5: News types
+type NewsItem = {
+  title: string;
+  source: string;
+  link: string;
+  published?: string;
+  summary?: string;
+  category?: string;
+  ageDays?: number;
+  updatedAtText?: string;
+};
+type NewsState = {
+  visible: boolean;
+  loading: boolean;
+  topic: string;
+  items: NewsItem[];
+  selectedIndex: number | null;
+  summarizing: boolean;
+  summaryText: string;
+};
+
 type ReadingSession = {
   bookId: string;
   title: string;
@@ -82,7 +103,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v8.4-multi-bubble";
+const APP_VERSION = "v8.5-news-feed";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -352,6 +373,16 @@ export default function Page() {
   const [status, setStatus] = useState<"idle" | "thinking" | "speaking" | "recording">("idle");
   const [visibleStatus, setVisibleStatus] = useState<any>(null);
   const [reading, setReading] = useState<ReadingSession | null>(null);
+  // v8.5: News state
+  const [news, setNews] = useState<NewsState>({
+    visible: false,
+    loading: false,
+    topic: "",
+    items: [],
+    selectedIndex: null,
+    summarizing: false,
+    summaryText: "",
+  });
   const [tab, setTab] = useState<Category>("regular");
   const [notice, setNotice] = useState("");
   const [versionTaps, setVersionTaps] = useState(0);
@@ -600,7 +631,62 @@ export default function Page() {
     speak(text);
   }
 
-  // v8.4: ทยอยแสดง bubbles ตาม delay + typing indicator
+  // v8.5: ============== NEWS HELPERS ==============
+  async function fetchNews(topic: string) {
+    setNews(prev => ({ ...prev, visible: true, loading: true, topic, items: [], selectedIndex: null, summaryText: "" }));
+    try {
+      const r = await fetch(`/api/news?q=${encodeURIComponent(topic)}`, { cache: "no-store" });
+      const data = await r.json();
+      const items: NewsItem[] = Array.isArray(data?.items) ? data.items.slice(0, 5) : [];
+      setNews(prev => ({ ...prev, loading: false, items }));
+      // ส่ง message จากน้องน้ำหลังโหลดข่าวเสร็จ
+      setTimeout(() => {
+        if (items.length === 0) {
+          sendAssistant(`เอ๊ะ... น้ำหาข่าวเรื่อง "${topic}" ไม่เจอเลยอะ ลองหาเรื่องอื่นหรือพิมพ์เจาะจงกว่านี้ดูสิ`);
+        } else {
+          sendAssistant(`เจอแล้วค่ะพี่! ข่าว ${items.length} เรื่อง พี่อยากฟังเรื่องไหนล่ะ กดเลยนะ 🌸`);
+        }
+      }, 400);
+    } catch (e: any) {
+      setNews(prev => ({ ...prev, loading: false, items: [] }));
+      sendAssistant("โอ๊ย... น้ำเช็คข่าวไม่ได้อะ เน็ตอาจสะดุด ลองอีกทีนะ");
+    }
+  }
+
+  async function summarizeNewsItem(index: number) {
+    const item = news.items[index];
+    if (!item) return;
+    setNews(prev => ({ ...prev, selectedIndex: index, summarizing: true, summaryText: "" }));
+    try {
+      const r = await fetch("/api/news-summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: item.title,
+          source: item.source,
+          link: item.link,
+          summary: item.summary || "",
+          category: item.category || "",
+          publishedText: item.updatedAtText || item.published || "",
+        }),
+      });
+      const data = await r.json();
+      const summary = String(data?.summary || "ไม่มีสรุป").trim();
+      setNews(prev => ({ ...prev, summarizing: false, summaryText: summary }));
+      // ส่งสรุปเข้า chat ด้วย
+      sendAssistant(summary);
+    } catch (e: any) {
+      setNews(prev => ({ ...prev, summarizing: false, summaryText: "" }));
+      sendAssistant("เอ๊ะ น้ำสรุปข่าวนี้ไม่ได้อะ ลองกดเรื่องอื่นดู");
+    }
+  }
+
+  function closeNews() {
+    setNews({ visible: false, loading: false, topic: "", items: [], selectedIndex: null, summarizing: false, summaryText: "" });
+  }
+  // v8.5: ============== END NEWS HELPERS ==============
+
+
   function sendAssistantBubbles(bubbles: { text: string; delay: number }[]) {
     if (!bubbles || bubbles.length === 0) return;
     if (bubbles.length === 1) {
@@ -742,6 +828,9 @@ export default function Page() {
         let reply: string;
         let source: string = "unknown";
         let bubbles: { text: string; delay: number }[] | null = null;
+        // v8.5: news trigger vars
+        let triggerNewsFetch = false;
+        let newsTopicFromServer = "";
         try {
           const v8Payload = {
             message: realMsg,
@@ -776,6 +865,11 @@ export default function Page() {
           if (Array.isArray(data?.bubbles) && data.bubbles.length > 0) {
             bubbles = data.bubbles;
           }
+          // v8.5: รับ news trigger จาก server
+          if (data?.triggerNewsFetch && data?.newsTopic) {
+            triggerNewsFetch = true;
+            newsTopicFromServer = String(data.newsTopic);
+          }
           if (data?.visibleStatus) setVisibleStatus(data.visibleStatus);
 
           // แสดงเตือนชัดเจนถ้าไม่ใช่ AI จริง
@@ -796,6 +890,11 @@ export default function Page() {
         } else {
           sendAssistant(reply);
           setStatus("idle");
+        }
+
+        // v8.5: ถ้า server บอกให้ดึงข่าว → เริ่มดึง
+        if (triggerNewsFetch && newsTopicFromServer) {
+          setTimeout(() => fetchNews(newsTopicFromServer), 600);
         }
       } catch (err: any) {
         sendAssistant(`⚠️ Memory engine error: ${err?.message || "unknown"}`);
@@ -1249,10 +1348,60 @@ export default function Page() {
             <div className="side">
               <button onClick={()=>setScreen("outfits")}>👗<span>ชุด</span></button>
               <button onClick={()=>{setBookCat("ทั้งหมด"); setScreen("books");}}>📚<span>หนังสือ</span></button>
+              <button onClick={()=>fetchNews("ข่าวเด่นวันนี้")} title="ข่าววันนี้">📰<span>ข่าว</span></button>
               <button onClick={()=>setZoom(z=>Math.min(1.7, z+.15))}>＋</button>
               <button onClick={()=>setZoom(z=>Math.max(.85, z-.15))}>－</button>
             </div>
             <div className="status">{status==="thinking"?<><span>{mem.nongnamName}กำลังพิมพ์</span><span className="dots"><span>.</span><span>.</span><span>.</span></span></>:status==="speaking"?`${mem.nongnamName}กำลังพูด...`:status==="recording"?"กำลังฟังเสียง...":" "}</div>
+            {/* v8.5: News Panel */}
+            {news.visible && (
+              <div className="newsPanel">
+                <div className="newsHeader">
+                  <span className="newsTitle">📰 {news.topic.replace('ข่าวเด่นวันนี้', 'ข่าวเด่นวันนี้')}</span>
+                  <button className="newsClose" onClick={closeNews}>✕</button>
+                </div>
+                {news.loading && <div className="newsLoading">กำลังหาข่าว... 🌸</div>}
+                {!news.loading && news.items.length === 0 && (
+                  <div className="newsEmpty">หาข่าวไม่เจอ ลองหัวข้ออื่นนะคะ</div>
+                )}
+                {!news.loading && news.items.length > 0 && (
+                  <div className="newsList">
+                    {news.items.map((item, i) => (
+                      <div
+                        key={i}
+                        className={`newsCard ${news.selectedIndex === i ? 'selected' : ''}`}
+                        onClick={() => summarizeNewsItem(i)}
+                      >
+                        <div className="newsCardTop">
+                          <span className="newsNum">{i + 1}</span>
+                          <span className="newsCardTitle">{item.title}</span>
+                        </div>
+                        <div className="newsCardMeta">
+                          <span className="newsSource">📍 {item.source}</span>
+                          {item.updatedAtText && <span className="newsTime">⏱ {item.updatedAtText}</span>}
+                        </div>
+                        {news.selectedIndex === i && news.summarizing && (
+                          <div className="newsSummaryLoading">น้องน้ำกำลังสรุป... 🌸</div>
+                        )}
+                        {news.selectedIndex === i && !news.summarizing && news.summaryText && (
+                          <div className="newsSummary">{news.summaryText}</div>
+                        )}
+                        <div className="newsActions">
+                          <button onClick={(e)=>{e.stopPropagation(); summarizeNewsItem(i);}}>
+                            {news.selectedIndex === i ? '🔄 สรุปใหม่' : '🎧 ฟังสรุป'}
+                          </button>
+                          {item.link && (
+                            <a href={item.link} target="_blank" rel="noopener noreferrer" onClick={(e)=>e.stopPropagation()}>
+                              🔗 อ่านเต็ม
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {reading && (
               <div className="readingPanel">
                 <div className="readingTitle">📖 {reading.title}</div>

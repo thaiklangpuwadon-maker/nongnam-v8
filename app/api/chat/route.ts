@@ -108,6 +108,26 @@ function isCurrentRealTimeQuestion(message: string) {
   return false
 }
 
+// v8.5: extractNewsTopic — แยก keyword จากข้อความผู้ใช้
+function extractNewsTopic(message: string): string {
+  const m = String(message || '').toLowerCase().trim()
+  // ถ้าเป็น "วันนี้มีข่าวอะไร" / "ข่าววันนี้" → ข่าวกระแส
+  if (/(วันนี้.*ข่าว|ข่าว.*วันนี้|มีข่าวอะไร|ข่าวเด่น|ข่าวกระแส|ข่าวล่าสุด|ข่าวอะไร|มีอะไรเด็ด|ข่าวร้อน)/i.test(m)) {
+    return 'ข่าวเด่นวันนี้'
+  }
+  // ลบคำซ้ำซ้อน → เก็บเฉพาะ topic
+  let topic = m
+    .replace(/(หาข่าว|ข่าว|เกี่ยวกับ|เรื่อง|มีอะไรไหม|มีไหม|มีบ้าง|วันนี้|ตอนนี้|ล่าสุด|หน่อย|ค่ะ|ครับ|ดิ|อะ|นะ|มั้ย|ไหม)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!topic || topic.length < 2) return 'ข่าวเด่นวันนี้'
+  // ถ้า topic สั้นเกินไป (เช่น "เกาหลี") → เพิ่มข่าวเฉพาะ
+  if (/(แรงงาน|วีซ่า|อีเก้า|e-9|e9|eps|ผีน้อย|แบล็ค|แบล็ก)/i.test(topic)) {
+    return topic + ' เกาหลี'
+  }
+  return topic
+}
+
 function detectIntent(message: string) {
   const m = normalizeIntentText(message)
   const aboutNam = isAboutNongNam(m)
@@ -123,7 +143,8 @@ function detectIntent(message: string) {
 
   if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่|วันที่เท่าไร)/i.test(m)) return 'date_question'
   if (/(เมื่อวาน|พรุ่งนี้|คืนพรุ่งนี้|เมื่อคืน|เมื่อเช้า)/i.test(m)) return 'relative_date_question'
-  if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว)/i.test(m)) return 'news_should_be_client'
+  // v8.5: news intent ทั้งหมด (ทั่วไป + เฉพาะเจาะจง)
+  if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว|มีข่าว|อ่านข่าว|อยากรู้ข่าว)/i.test(m)) return 'news_request'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
   if (aboutNam && /(กิน|ข้าว|หิว|กินอะไรหรือยัง)/i.test(m)) return 'nam_food'
   if (aboutNam && /(ทำอะไร|ทำไร|อยู่ไหน|ตอนนี้|นอน|หลับ|ตื่น)/i.test(m)) return 'nam_activity'
@@ -183,7 +204,7 @@ function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visi
   if (intent === 'time_question') reply = `ตอนนี้ ${timeTruth.thaiTimeText} แล้วพี่`
   else if (intent === 'date_question') reply = `วันนี้คือ ${timeTruth.thaiDateText} พี่`
   else if (intent === 'relative_date_question') reply = relativeDateReply(message, timeTruth)
-  else if (intent === 'news_should_be_client') reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
+  else if (intent === 'news_request') reply = 'ได้พี่ เดี๋ยวน้ำไปไล่ข่าวที่น่าสนใจมาให้ก่อน'
   else if (intent === 'reminder') reply = 'ได้ น้ำจำไว้ให้ในแชตนี้นะ แต่ถ้าพี่ไม่เปิดแอปเข้ามา น้ำจะลากพี่มาตอนถึงเวลาเองไม่ได้เด้อ'
   else if (visibleStatus?.availability === 'sleeping' && /(ตื่น|ปลุก)/i.test(message)) reply = `${interjection}อืออ… พี่ปลุกน้ำทำไมอะ ถ้าไม่สำคัญน้ำงอนนะ`
   // v8.3: เคสเฉพาะ "น้องน้ำจะนอนกี่โมง"
@@ -463,6 +484,23 @@ export async function POST(req: NextRequest) {
         visibleStatus,
         updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
         source: 'time-truth-direct-v11.15.5',
+      })
+    }
+
+    // v8.5: ตอบเรื่องข่าว direct + ส่ง newsTopic กลับให้ frontend ไปดึง /api/news
+    if (intent === 'news_request') {
+      const newsTopic = extractNewsTopic(message)
+      const reply = `ได้เลยพี่ เดี๋ยวน้ำหาข่าว "${newsTopic.replace('ข่าวเด่นวันนี้', 'เด่นวันนี้')}" ให้ก่อนนะ 🌸`
+      return json({
+        reply,
+        bubbles: [{ text: reply, delay: 0 }],
+        newsTopic,           // v8.5: frontend จะใช้ key นี้ไปดึงข่าว
+        triggerNewsFetch: true,
+        companionDNA: dna,
+        timeTruth,
+        visibleStatus,
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
+        source: 'news-trigger-v8.5',
       })
     }
 
