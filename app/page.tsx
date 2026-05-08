@@ -72,6 +72,35 @@ type ChatMsg = { role: "user" | "assistant"; text: string; ts: number };
 
 type ApiMode = "local" | "api-light" | "api-deep" | "api-search";
 
+// v8.6: Life Memory type (เก็บใน localStorage แทน IndexedDB ก่อน)
+type LifeMemoryClient = {
+  birthDate?: string;
+  hometown?: string;
+  family?: string[];
+  zodiac?: string;
+  currentJob?: { title: string; since: string };
+  events?: Array<{ date: string; type: string; content: string; importance?: string }>;
+  promises?: Array<{ id: string; content: string; expectedDate?: string; createdAt: string; status: string; outcome?: string }>;
+  userProfile?: {
+    prefersTeasing?: boolean;
+    prefersSerious?: boolean;
+    prefersFlirt?: boolean;
+    prefersErotic?: boolean;
+    prefersComfort?: boolean;
+    prefersHumor?: boolean;
+    favoriteTopics?: string[];
+    avoidTopics?: string[];
+    mentionedPeople?: string[];
+    occupation?: string;
+    livesAlone?: boolean;
+    hasGirlfriend?: boolean;
+    oftenLonely?: boolean;
+    oftenStressed?: boolean;
+  };
+  lastUpdate?: string;
+  mode?: string;
+};
+
 // v8.5: News types
 type NewsItem = {
   title: string;
@@ -103,7 +132,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v8.5-news-feed";
+const APP_VERSION = "v8.6-life-tree";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -373,6 +402,8 @@ export default function Page() {
   const [status, setStatus] = useState<"idle" | "thinking" | "speaking" | "recording">("idle");
   const [visibleStatus, setVisibleStatus] = useState<any>(null);
   const [reading, setReading] = useState<ReadingSession | null>(null);
+  // v8.6: Life Memory (โหลดจาก localStorage)
+  const [lifeMemory, setLifeMemoryState] = useState<LifeMemoryClient | null>(null);
   // v8.5: News state
   const [news, setNews] = useState<NewsState>({
     visible: false,
@@ -433,6 +464,9 @@ export default function Page() {
       setReading(paused);
       readingRef.current = paused;
     }
+    // v8.6: โหลด Life Memory จาก localStorage
+    const savedLife = loadJSON<LifeMemoryClient | null>("nongnam_life_memory_v1", null);
+    if (savedLife) setLifeMemoryState(savedLife);
     if (merged.setupDone) setScreen("chat");
     setReady(true);
   }, []);
@@ -847,9 +881,10 @@ export default function Page() {
               facts: allFacts.slice(-25).map(f => ({ key: f.key, value: f.value })),
               schedules: schedules.map(s => ({ type: s.type, label: s.label, time: s.time })),
               recentMentions: nextMentions.slice(-5),
-              socialBattery: 70, // TODO: คำนวณจริงตามเวลา/การใช้งาน
+              socialBattery: 70,
             },
             recent: chat.slice(-6).map(c => ({ role: c.role, text: c.text })),
+            lifeMemory,                                  // v8.6: ส่ง life memory ไปด้วย
             clientNonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
             ...getClientTimePayload(),
           };
@@ -869,6 +904,11 @@ export default function Page() {
           if (data?.triggerNewsFetch && data?.newsTopic) {
             triggerNewsFetch = true;
             newsTopicFromServer = String(data.newsTopic);
+          }
+          // v8.6: รับ updatedLifeMemory และ save
+          if (data?.updatedLifeMemory) {
+            setLifeMemoryState(data.updatedLifeMemory);
+            saveJSON("nongnam_life_memory_v1", data.updatedLifeMemory);
           }
           if (data?.visibleStatus) setVisibleStatus(data.visibleStatus);
 

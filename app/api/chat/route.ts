@@ -8,6 +8,18 @@ import { buildHumanBodyAutonomyBranchLite, summarizeHumanBodyAutonomyForPrompt }
 import { buildHumanCoreDesireKilesaBranchLite, summarizeHumanCoreDesireForPrompt } from '../../../lib/humanCoreDesireKilesaBranchLite'
 import { buildVisibleStatusLite, summarizeVisibleStatusForPrompt } from '../../../lib/visibleStatusBranchLite'
 import { buildTimeTruthLite, summarizeTimeTruthForPrompt, timeTruthToBranchDate, type TimeTruthLite } from '../../../lib/timeTruthBranchLite'
+// v8.6: Life Tree Engine
+import {
+  getCurrentLifeState,
+  detectPromise,
+  detectInteractionMode,
+  updateUserProfile,
+  buildLifeTreePromptAddition,
+  appendEvent,
+  createDefaultLifeMemory,
+  type LifeMemory,
+  type Promise as LifePromise,
+} from '../../../lib/lifeTreeEngine'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,6 +33,8 @@ type Body = {
   mode?: 'local' | 'api-light' | 'api-deep' | string
   companionDNA?: CompanionDNALite | null
   clientNonce?: string
+  // v8.6: Life Tree Memory (จาก IndexedDB)
+  lifeMemory?: LifeMemory | null
 
   clientTimestampMs?: number
   clientTimeText?: string
@@ -151,7 +165,9 @@ function detectIntent(message: string) {
   if (isCurrentRealTimeQuestion(m)) return 'time_question'
 
   if (/(วันนี้วันอะไร|วันนี้วันที่|วันนี้คือวัน|วันที่เท่าไหร่|วันที่เท่าไร)/i.test(m)) return 'date_question'
-  if (/(เมื่อวาน|พรุ่งนี้|คืนพรุ่งนี้|เมื่อคืน|เมื่อเช้า)/i.test(m)) return 'relative_date_question'
+  // v8.6: relative_date จริงต้องเป็นคำถาม "เมื่อวานวันอะไร" ไม่ใช่ "เมื่อคืนนอนไม่หลับ"
+  if (/^(เมื่อวาน|พรุ่งนี้|เมื่อคืน|เมื่อเช้า)\s*(วันอะไร|วันที่|คือ|วัน)?(\?|$)/i.test(m.trim())) return 'relative_date_question'
+  if (/(เมื่อวาน|พรุ่งนี้|เมื่อคืน|เมื่อเช้า)\s*(วันอะไร|วันที่เท่าไหร่|วันที่เท่าไร|คือวันอะไร)/i.test(m)) return 'relative_date_question'
   // v8.5: news intent ทั้งหมด (ทั่วไป + เฉพาะเจาะจง)
   if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว|มีข่าว|อ่านข่าว|อยากรู้ข่าว)/i.test(m)) return 'news_request'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
@@ -476,13 +492,46 @@ export async function POST(req: NextRequest) {
     const truthNow = timeTruthToBranchDate(timeTruth)
     const recentString = recentText(recent)
 
+    // v8.6: Life Tree — โหลด/สร้าง memory + จับ promise + เรียนรู้ user + state stability
+    let lifeMemory: LifeMemory = body.lifeMemory || createDefaultLifeMemory()
+    const recentMessages = recent.filter(r => r.role === 'user').map(r => r.text)
+    const lifeMode = detectInteractionMode(message, recentMessages)
+    lifeMemory = {
+      ...lifeMemory,
+      mode: lifeMode,
+      userProfile: updateUserProfile(lifeMemory.userProfile || { favoriteTopics: [], avoidTopics: [], mentionedPeople: [] }, message),
+    }
+    // จับ promise ในข้อความ user (เช่น "พี่จะไปทำอะไร")
+    const userPromiseDetected = detectPromise(message, truthNow)
+    if (userPromiseDetected) {
+      lifeMemory.events = [
+        ...(lifeMemory.events || []),
+        { date: truthNow.toISOString().split('T')[0], type: 'mentioned' as const, content: `พี่บอก: ${userPromiseDetected.content}` },
+      ].slice(-50)
+    }
+
+    // v8.6: Stable state — ใช้แทนสถานะที่กระโดดทุกข้อความ
+    const stableState = getCurrentLifeState({
+      hour: timeTruth.hour,
+      dayKey: `${timeTruth.year}-${String(timeTruth.month).padStart(2, '0')}-${String(timeTruth.date).padStart(2, '0')}`,
+      fingerprint: dna.fingerprint || 'default',
+      weekday: timeTruth.dayOfWeek,
+    })
+
     const layer = buildDeepHumanLayerLite({ dna, message, recentText: recentString, adultMode: memory?.adultMode === true, now: truthNow })
     const sub = buildHumanSubBranchLite({ dna, layer, message, recentText: recentString })
     const micro = buildHumanMicroBranchLite({ dna, layer, sub, message, recentText: recentString })
     const life = buildHumanLifeSceneBranchLite({ dna, layer, sub, micro, message, recentText: recentString, now: truthNow })
     const bodyAuto = buildHumanBodyAutonomyBranchLite({ dna, layer, sub, micro, life, message, recentText: recentString, now: truthNow })
     const core = buildHumanCoreDesireKilesaBranchLite({ dna, layer, sub, micro, life, bodyAuto, message, recentText: recentString, now: truthNow })
-    const visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
+    let visibleStatus = buildVisibleStatusLite({ dna, layer, sub, micro, life, bodyAuto, core, message, now: truthNow })
+
+    // v8.6: OVERRIDE visibleStatus ด้วย stable state (key fix สำหรับสถานะกระโดด!)
+    visibleStatus = {
+      ...visibleStatus,
+      availability: stableState.availability as any,
+      displayText: stableState.activity,
+    }
 
     const intent = detectIntent(message)
     if (intent === 'time_question' || intent === 'date_question' || intent === 'relative_date_question') {
@@ -537,7 +586,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) + '\n\n' + buildLifeTreePromptAddition(lifeMemory, lifeMode) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
@@ -574,10 +623,29 @@ export async function POST(req: NextRequest) {
     const bubbleStyle = detectBubbleStyle(reply, intent, message)
     const bubbles = splitIntoBubbles(reply, bubbleStyle)
 
+    // v8.6: จับ promise จากคำตอบ AI
+    const aiPromise = detectPromise(reply, truthNow)
+    if (aiPromise) {
+      const promiseId = `p_${Date.now()}`
+      const newPromise: LifePromise = { id: promiseId, ...aiPromise }
+      lifeMemory = {
+        ...lifeMemory,
+        promises: [...(lifeMemory.promises || []), newPromise].slice(-20),
+      }
+    }
+    // v8.6: บันทึกเหตุการณ์การคุย
+    if (message.length > 8) {
+      lifeMemory = appendEvent(lifeMemory, {
+        type: 'said',
+        content: `พี่: ${message.slice(0, 80)}`,
+      }, truthNow)
+    }
+    lifeMemory.lastUpdate = truthNow.toISOString()
+
     return json({
       reply,
-      bubbles,           // v8.4: array of { text, delay }
-      bubbleStyle,       // v8.4: debug
+      bubbles,
+      bubbleStyle,
       companionDNA: dna,
       timeTruth,
       visibleStatus,
@@ -587,8 +655,9 @@ export async function POST(req: NextRequest) {
       humanLifeScene: life,
       humanBodyAutonomy: bodyAuto,
       humanCoreDesire: core,
+      updatedLifeMemory: lifeMemory,        // v8.6: ส่งกลับให้ frontend save IndexedDB
       updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth },
-      source: 'openai-v11.15.5',
+      source: 'openai-v8.6-life-tree',
     })
   } catch (error) {
     return json({
