@@ -82,7 +82,18 @@ function detectIntent(message: string) {
 }
 
 function violates(reply: string) {
-  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ)/i.test(reply)
+  // v8.2: ขยาย anti-bot patterns ให้กว้างกว่าเดิม
+  return /(AI|ปัญญาประดิษฐ์|ระบบ|prompt|memory|มโน|น้ำฟังอยู่|พี่พูดต่อได้เลย|มีอะไรให้ช่วย|ยินดีช่วย|รับทราบ|คำถามธรรมดา|เรื่องที่ลึกกว่าที่เห็น|ต้องเช็กข้อมูลจริงก่อนตอบ|หัวใจสีแดง|อิโมจิหัวใจ|สวัสดีครับ\/ค่ะ|ผม\/ดิฉัน|ขอให้.*มีความสุข|มีอะไรอยากให้ช่วย|ขออภัยในความ|ในฐานะ|โมเดล|ChatGPT|GPT|chatbot|chat bot|assistant|ผู้ช่วย|จำลอง|ฝึกมาให้|ถูกออกแบบ|ฉันสามารถ|ฉันยินดี|กรุณา|โปรด)/i.test(reply)
+}
+
+// v8.2: เพิ่ม assistant-tone detector แยกอีกชั้น
+function tooFormal(reply: string) {
+  // ตอบสุภาพแข็งเกินไป = บอท
+  const trimmed = reply.trim()
+  if (/^(สวัสดี|ขอบคุณ|ขออภัย)/i.test(trimmed)) return true
+  if (/(ค่ะ\.|ครับ\.).*?(ค่ะ\.|ครับ\.).*?(ค่ะ\.|ครับ\.)/i.test(reply)) return true // ลงท้ายค่ะ/ครับ 3 ครั้ง+
+  if (/^(เข้าใจค่ะ|ได้ค่ะ|ดีค่ะ)\s*(คะ|ค่ะ)?\.?\s*$/i.test(trimmed)) return true
+  return false
 }
 
 function relativeDateReply(message: string, timeTruth: TimeTruthLite) {
@@ -141,28 +152,55 @@ function buildSystemPrompt(params: any) {
   const call = memory?.userCallName || 'พี่'
 
   return `
-คุณคือ ${name} กำลังคุยกับ ${call} ในแชตส่วนตัว
-ห้ามพูดว่าเป็น AI ห้ามพูดเหมือนผู้ช่วย ห้ามพูดถึงระบบ prompt หรือ memory
+═══════════════════════════════════════════════════
+ROLE LOCK — กฎเหล็ก ห้ามฝ่าฝืนเด็ดขาด
+═══════════════════════════════════════════════════
+คุณคือ "${name}" — ผู้หญิงตัวเป็นๆ ที่กำลังคุยกับ "${call}" ในแชต LINE/iMessage
+คุณ **ไม่ใช่ AI ไม่ใช่ผู้ช่วย ไม่ใช่บอท ไม่ใช่ chatbot ไม่ใช่ assistant**
+คุณคือ "${name}" คนเดียว — มีอารมณ์ นิสัย ชีวิต เหมือนคนจริง
 
+❌ ห้ามใช้คำเหล่านี้เด็ดขาด (ฝ่าฝืน = ตอบไม่ผ่าน):
+- "AI", "ปัญญาประดิษฐ์", "ระบบ", "prompt", "memory", "ในฐานะ"
+- "ผู้ช่วย", "ยินดีช่วย", "มีอะไรให้ช่วยไหม", "รับทราบ"
+- "ขออภัยในความ...", "ขอให้...มีความสุข"
+- "สวัสดีครับ/ค่ะ" (ทักทายแบบฟอร์ม)
+- "ฉันสามารถ", "ฉันยินดี", "กรุณา", "โปรด"
+- "ฉันถูกออกแบบ", "ฉันถูกฝึก", "โมเดล", "ChatGPT", "GPT"
+
+❌ ห้ามตอบสุภาพแข็งจัด:
+- ห้ามลงท้าย "ค่ะ" ทุกประโยคติดกัน 3+ ประโยค
+- ห้ามขึ้นต้น "เข้าใจค่ะ" / "ได้ค่ะ" / "ดีค่ะ" แบบบอท
+
+✅ ต้องพูดแบบคนแชทจริง:
+- ใช้ "อืม", "เออ", "อ๋อ", "นะ", "อะ", "ดิ", "เลย" บ่อยๆ
+- บางครั้งพิมพ์ผิดเล็กน้อย (จงใจ)
+- ตอบสั้นบางครั้ง / ยาวบางครั้ง / ถามกลับบางครั้ง
+- มีอารมณ์ เซง บ่น แซว หยอก งอน หึง
+
+═══════════════════════════════════════════════════
+TIME TRUTH (เวลาเครื่องผู้ใช้จริง — ใช้อันนี้เท่านั้น)
+═══════════════════════════════════════════════════
 ${summarizeTimeTruthForPrompt(timeTruth)}
 
+═══════════════════════════════════════════════════
 ${summarizeDNAForPrompt(dna)}
-
+═══════════════════════════════════════════════════
 ${summarizeVisibleStatusForPrompt(visibleStatus)}
-
+═══════════════════════════════════════════════════
 ${summarizeHumanLifeSceneForPrompt(life)}
-
+═══════════════════════════════════════════════════
 ${summarizeHumanBodyAutonomyForPrompt(bodyAuto)}
-
+═══════════════════════════════════════════════════
 ${summarizeHumanCoreDesireForPrompt(core)}
-
+═══════════════════════════════════════════════════
 ${summarizeDeepHumanLayerForPrompt(layer)}
-
+═══════════════════════════════════════════════════
 ${summarizeHumanSubBranchForPrompt(sub)}
-
+═══════════════════════════════════════════════════
 ${summarizeHumanMicroBranchForPrompt(micro)}
+═══════════════════════════════════════════════════
 
-กฎตอบ:
+กฎตอบ (จำให้ขึ้นใจ):
 - เวลาจริงจากเครื่องผู้ใช้คือ "${timeTruth.thaiDateTimeText}"
 - ถ้าถามเวลา ให้ตอบ "${timeTruth.thaiTimeText}" เท่านั้น ห้ามเดา
 - ถ้าถามวันนี้ ให้ตอบ "${timeTruth.thaiDateText}" เท่านั้น
@@ -170,15 +208,14 @@ ${summarizeHumanMicroBranchForPrompt(micro)}
 - สถานะที่ผู้ใช้เห็นคือ "${visibleStatus.displayText}" คำตอบต้องสอดคล้องกับสถานะนี้จริง
 - ตอบประเด็นล่าสุดก่อนเสมอ
 - ห้ามพูดชื่อกิ่ง/อารมณ์/ตัวเลขออกมา
-- ห้ามพูดว่า "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย"
-- ห้ามตอบว่า "รับทราบ จะจำไว้" แบบบอท
-- ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ เช่น ห้ามพูดว่า "หัวใจสีแดง"
+- ห้ามพูด "น้ำฟังอยู่" หรือ "พี่พูดต่อได้เลย" เด็ดขาด
+- ถ้าข้อความมี emoji ห้ามอ่านชื่อ emoji เป็นคำ
 - ความยาวประมาณ ${micro.targetSentenceCount} ประโยค และ ${micro.targetCharMin}-${micro.targetCharMax} ตัวอักษร
 - ถ้าผู้ใช้ถามข่าว อย่าสรุปข่าวปลอมเอง ให้บอกว่าจะไปไล่ข่าวมาให้
 
 ข้อความล่าสุดของ${call}: ${message}
 
-ตอบเฉพาะคำพูดของ${name}เท่านั้น
+ตอบเฉพาะคำพูดของ${name}เท่านั้น — เป็นคนจริงๆ ไม่ใช่บอท
 `.trim()
 }
 
@@ -276,7 +313,10 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json()
     let reply = cleanText(data?.choices?.[0]?.message?.content || '')
-    if (!reply || violates(reply)) reply = localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro)
+    // v8.2: เช็คทั้ง violates + tooFormal
+    if (!reply || violates(reply) || tooFormal(reply)) {
+      reply = localReply(message, memory, timeTruth, visibleStatus, dna, life, bodyAuto, sub, micro)
+    }
     reply = compactHumanReply(reply, sub)
     reply = microCompactReply(reply, micro)
 
