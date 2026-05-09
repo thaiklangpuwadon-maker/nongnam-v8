@@ -121,9 +121,10 @@ const SLEEP_POOL = [
 ]
 
 const EARLY_MORNING_POOL = [
-  { availability: 'just_woke', activity: 'เพิ่งตื่น งัวเงียอยู่', mood: 'sleepy_warm' },
+  { availability: 'just_woke', activity: 'เพิ่งตื่น', mood: 'fresh' },
   { availability: 'getting_ready', activity: 'กำลังอาบน้ำเตรียมตัว', mood: 'fresh' },
   { availability: 'having_coffee', activity: 'จิบกาแฟอยู่', mood: 'calm' },
+  { availability: 'reading_news', activity: 'อ่านข่าวเช้าอยู่', mood: 'alert' },
 ]
 
 const WEEKEND_MORNING_POOL = [
@@ -151,9 +152,11 @@ const LUNCH_POOL = [
 ]
 
 const WORK_AFTERNOON_POOL = [
-  { availability: 'working', activity: 'ทำงานต่อ ง่วงนิดๆ', mood: 'sluggish' },
+  { availability: 'working', activity: 'ทำงานต่อ', mood: 'focused' },
   { availability: 'on_call', activity: 'อยู่ในโทรศัพท์งาน', mood: 'professional' },
-  { availability: 'tired_at_work', activity: 'เริ่มล้าๆ อยากเลิกงาน', mood: 'fatigued' },
+  { availability: 'tea_break', activity: 'พักกินขนม', mood: 'relaxed_brief' },
+  { availability: 'thinking', activity: 'นั่งคิดงานอยู่', mood: 'focused' },
+  { availability: 'busy', activity: 'ยุ่งนิดนึง กำลังทำอะไรค้างไว้', mood: 'busy' },
 ]
 
 const WEEKEND_DAY_POOL = [

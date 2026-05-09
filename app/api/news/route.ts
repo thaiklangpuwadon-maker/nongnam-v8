@@ -3,16 +3,28 @@ import { NextRequest, NextResponse } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// v8.6.1: ใช้ native fetch + regex parser — ไม่ต้องลง rss-parser
-const FEEDS = [
-  { name: 'ข่าวสด', url: 'https://www.khaosod.co.th/feed', tags: ['ทั่วไป'] },
-  { name: 'มติชน', url: 'https://www.matichon.co.th/feed', tags: ['ทั่วไป', 'การเมือง'] },
-  { name: 'ไทยโพสต์', url: 'https://www.thaipost.net/feed', tags: ['ทั่วไป', 'การเมือง'] },
-  { name: 'ไทยรัฐ', url: 'https://www.thairath.co.th/rss/news', tags: ['ทั่วไป'] },
-  { name: 'PPTV HD36', url: 'https://www.pptvhd36.com/news/feed', tags: ['ทั่วไป'] },
-  { name: 'Thai PBS', url: 'https://news.thaipbs.or.th/rss/news', tags: ['ทั่วไป'] },
-  { name: 'KBS World Thai', url: 'http://world.kbs.co.kr/rss/rss_news.htm?lang=t&id=Po', tags: ['เกาหลี'] },
+// v8.7: 4 categories + native fetch + cache
+type Category = 'thai' | 'korea' | 'world' | 'workers'
+
+const FEEDS: { name: string; url: string; category: Category }[] = [
+  // 🇹🇭 ข่าวไทย
+  { name: 'ข่าวสด', url: 'https://www.khaosod.co.th/feed', category: 'thai' },
+  { name: 'มติชน', url: 'https://www.matichon.co.th/feed', category: 'thai' },
+  { name: 'ไทยโพสต์', url: 'https://www.thaipost.net/feed', category: 'thai' },
+  { name: 'ไทยรัฐ', url: 'https://www.thairath.co.th/rss/news', category: 'thai' },
+  { name: 'PPTV', url: 'https://www.pptvhd36.com/news/feed', category: 'thai' },
+  { name: 'Thai PBS', url: 'https://news.thaipbs.or.th/rss/news', category: 'thai' },
+  // 🇰🇷 ข่าวเกาหลีภาษาไทย
+  { name: 'KBS World Thai', url: 'http://world.kbs.co.kr/rss/rss_news.htm?lang=t&id=Po', category: 'korea' },
+  { name: 'KBS World Thai (วัฒนธรรม)', url: 'http://world.kbs.co.kr/rss/rss_news.htm?lang=t&id=Cu', category: 'korea' },
+  // 🌏 ข่าวทั่วโลก ภาษาไทย
+  { name: 'BBC Thai', url: 'https://feeds.bbci.co.uk/thai/rss.xml', category: 'world' },
 ]
+
+// Cache 5 นาที — ลด load Vercel + RSS sources
+type CachedNews = { items: NewsItemOut[]; ts: number }
+const NEWS_CACHE = new Map<string, CachedNews>()
+const CACHE_TTL_MS = 5 * 60 * 1000
 
 type RssItem = {
   title: string
@@ -27,7 +39,7 @@ type NewsItemOut = {
   link: string
   published: string
   summary: string
-  category: string
+  category: Category
   ageDays: number
   updatedAtText: string
 }
@@ -81,7 +93,7 @@ function cleanText(s: string): string {
     .trim()
 }
 
-async function fetchFeed(feed: typeof FEEDS[0]): Promise<{ source: string; tags: string[]; items: RssItem[] }> {
+async function fetchFeed(feed: typeof FEEDS[0]): Promise<{ source: string; category: Category; items: RssItem[] }> {
   try {
     const res = await fetch(feed.url, {
       method: 'GET',
@@ -92,28 +104,57 @@ async function fetchFeed(feed: typeof FEEDS[0]): Promise<{ source: string; tags:
       signal: AbortSignal.timeout(8000),
       cache: 'no-store',
     })
-    if (!res.ok) return { source: feed.name, tags: feed.tags, items: [] }
+    if (!res.ok) return { source: feed.name, category: feed.category, items: [] }
     const xml = await res.text()
-    return { source: feed.name, tags: feed.tags, items: parseRssXml(xml) }
+    return { source: feed.name, category: feed.category, items: parseRssXml(xml) }
   } catch (e) {
-    return { source: feed.name, tags: feed.tags, items: [] }
+    return { source: feed.name, category: feed.category, items: [] }
   }
+}
+
+// v8.7: classify "workers" จาก keyword ภายใน
+function isWorkersNews(title: string, summary: string): boolean {
+  const text = `${title} ${summary}`.toLowerCase()
+  return /(แรงงาน|วีซ่า|e-9|e9|eps|ผีน้อย|แบล็คลิสต์|แบล็กลิสต์|คนไทยในเกาหลี|คนไทยในต่างแดน|คนไทยต่างประเทศ|ลูกจ้าง.*เกาหลี|ลูกจ้าง.*ต่างชาติ|จัดส่งแรงงาน)/i.test(text)
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const query = (searchParams.get('q') || '').trim().toLowerCase()
+    const requestedCategory = searchParams.get('category') as Category | null
     const isHotNews = !query || query === 'ข่าวเด่นวันนี้' || query.includes('ข่าวเด่น')
 
+    // Cache key
+    const cacheKey = `${requestedCategory || 'all'}|${query}`
+    const cached = NEWS_CACHE.get(cacheKey)
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return NextResponse.json({
+        ok: true,
+        query,
+        items: cached.items,
+        groupedByCategory: groupByCategory(cached.items),
+        cached: true,
+        source: 'cache-v8.7',
+      })
+    }
+
     const allResults = await Promise.all(FEEDS.map(fetchFeed))
+
     let allNews = allResults.flatMap(r =>
-      r.items.map(item => ({
-        ...item,
-        source: r.source,
-        category: r.tags[0] || 'ทั่วไป',
-        tags: r.tags,
-      }))
+      r.items.map(item => {
+        // workers re-classification
+        let cat = r.category
+        if (isWorkersNews(item.title, item.description)) cat = 'workers'
+        return {
+          title: item.title,
+          source: r.source,
+          link: item.link,
+          published: item.pubDate,
+          summary: item.description,
+          category: cat,
+        }
+      })
     )
 
     if (allNews.length === 0) {
@@ -122,15 +163,10 @@ export async function GET(req: NextRequest) {
 
     const now = Date.now()
     const enriched: NewsItemOut[] = allNews.map(item => {
-      const pubMs = parseDate(item.pubDate)
+      const pubMs = parseDate(item.published)
       const ageDays = pubMs ? Math.max(0, Math.floor((now - pubMs) / 86400000)) : 999
       return {
-        title: item.title,
-        source: item.source,
-        link: item.link,
-        published: item.pubDate,
-        summary: item.description,
-        category: item.category,
+        ...item,
         ageDays,
         updatedAtText: humanizeAge(now - (pubMs || 0)),
       }
@@ -146,6 +182,10 @@ export async function GET(req: NextRequest) {
       )
     }
 
+    if (requestedCategory) {
+      filtered = filtered.filter(item => item.category === requestedCategory)
+    }
+
     if (!isHotNews && query) {
       const keywords = extractKeywords(query)
       const scored = filtered.map(item => ({ item, score: scoreMatch(item, keywords) }))
@@ -157,6 +197,7 @@ export async function GET(req: NextRequest) {
       filtered.sort((a, b) => a.ageDays - b.ageDays)
     }
 
+    // Dedupe
     const seen = new Set<string>()
     const deduped = filtered.filter(item => {
       const key = item.title.toLowerCase().slice(0, 50)
@@ -165,16 +206,48 @@ export async function GET(req: NextRequest) {
       return true
     })
 
+    // For "all" hot news → balance across categories
+    let finalItems: NewsItemOut[]
+    if (!requestedCategory && isHotNews) {
+      finalItems = balanceCategories(deduped)
+    } else {
+      finalItems = deduped.slice(0, 12)
+    }
+
+    NEWS_CACHE.set(cacheKey, { items: finalItems, ts: Date.now() })
+
     return NextResponse.json({
       ok: true,
       query,
-      count: deduped.length,
-      items: deduped.slice(0, 12),
-      source: 'rss-native-thai-v8.6.1',
+      count: finalItems.length,
+      items: finalItems,
+      groupedByCategory: groupByCategory(finalItems),
+      cached: false,
+      source: 'rss-multi-thai-v8.7',
     })
   } catch (e: any) {
     return NextResponse.json({ ok: false, items: [], error: e?.message || 'unknown' })
   }
+}
+
+function balanceCategories(items: NewsItemOut[]): NewsItemOut[] {
+  // เป้าหมาย: ไทย 5 / เกาหลี 3 / ทั่วโลก 3 / แรงงาน 2 = 13
+  const limits: Record<Category, number> = { thai: 5, korea: 3, world: 3, workers: 2 }
+  const result: NewsItemOut[] = []
+  const counts: Record<Category, number> = { thai: 0, korea: 0, world: 0, workers: 0 }
+  for (const item of items) {
+    if (counts[item.category] < limits[item.category]) {
+      result.push(item)
+      counts[item.category]++
+    }
+  }
+  return result
+}
+
+function groupByCategory(items: NewsItemOut[]): Record<Category, NewsItemOut[]> {
+  const groups: Record<Category, NewsItemOut[]> = { thai: [], korea: [], world: [], workers: [] }
+  for (const item of items) groups[item.category].push(item)
+  return groups
 }
 
 function parseDate(s: string): number {
