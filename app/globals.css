@@ -587,3 +587,29 @@ textarea { width:100%; padding:13px 14px; border-radius:16px; border:1px solid #
 .newsActions button:hover, .newsActions a:hover {
   background: white;
 }
+
+/* v8.7.1: News sections */
+.newsSection { margin-bottom: 14px; }
+.newsSection:last-child { margin-bottom: 4px; }
+.newsSectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6b4c5f;
+  padding: 8px 6px 6px;
+  border-bottom: 2px solid rgba(255, 140, 175, 0.3);
+  margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.95);
+  z-index: 1;
+}
+.newsHotBadge {
+  display: inline-block;
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 8px;
+  margin-left: 4px;
+}

@@ -108,9 +108,11 @@ type NewsItem = {
   link: string;
   published?: string;
   summary?: string;
-  category?: string;
+  category?: string;        // v8.7.1: thai_hot | thai_latest | world | korea | workers
   ageDays?: number;
   updatedAtText?: string;
+  hotScore?: number;        // v8.7.1: จำนวนสำนักที่รายงาน
+  alsoIn?: string[];        // v8.7.1: สำนักอื่นที่รายงาน
 };
 type NewsState = {
   visible: boolean;
@@ -132,7 +134,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v8.6-life-tree";
+const APP_VERSION = "v8.7.1-news-hotscore";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -1397,49 +1399,82 @@ export default function Page() {
             {news.visible && (
               <div className="newsPanel">
                 <div className="newsHeader">
-                  <span className="newsTitle">📰 {news.topic.replace('ข่าวเด่นวันนี้', 'ข่าวเด่นวันนี้')}</span>
+                  <span className="newsTitle">📰 ข่าววันนี้</span>
                   <button className="newsClose" onClick={closeNews}>✕</button>
                 </div>
                 {news.loading && <div className="newsLoading">กำลังหาข่าว... 🌸</div>}
                 {!news.loading && news.items.length === 0 && (
-                  <div className="newsEmpty">หาข่าวไม่เจอ ลองหัวข้ออื่นนะคะ</div>
+                  <div className="newsEmpty">หาข่าวไม่เจอ ลองอีกที</div>
                 )}
-                {!news.loading && news.items.length > 0 && (
-                  <div className="newsList">
-                    {news.items.map((item, i) => (
-                      <div
-                        key={i}
-                        className={`newsCard ${news.selectedIndex === i ? 'selected' : ''}`}
-                        onClick={() => summarizeNewsItem(i)}
-                      >
-                        <div className="newsCardTop">
-                          <span className="newsNum">{i + 1}</span>
-                          <span className="newsCardTitle">{item.title}</span>
-                        </div>
-                        <div className="newsCardMeta">
-                          <span className="newsSource">📍 {item.source}</span>
-                          {item.updatedAtText && <span className="newsTime">⏱ {item.updatedAtText}</span>}
-                        </div>
-                        {news.selectedIndex === i && news.summarizing && (
-                          <div className="newsSummaryLoading">น้องน้ำกำลังสรุป... 🌸</div>
-                        )}
-                        {news.selectedIndex === i && !news.summarizing && news.summaryText && (
-                          <div className="newsSummary">{news.summaryText}</div>
-                        )}
-                        <div className="newsActions">
-                          <button onClick={(e)=>{e.stopPropagation(); summarizeNewsItem(i);}}>
-                            {news.selectedIndex === i ? '🔄 สรุปใหม่' : '🎧 ฟังสรุป'}
-                          </button>
-                          {item.link && (
-                            <a href={item.link} target="_blank" rel="noopener noreferrer" onClick={(e)=>e.stopPropagation()}>
-                              🔗 อ่านเต็ม
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {!news.loading && news.items.length > 0 && (() => {
+                  // v8.7.1: group by category
+                  const grouped: Record<string, { item: NewsItem; idx: number }[]> = {
+                    thai_hot: [],
+                    thai_latest: [],
+                    world: [],
+                    korea: [],
+                    workers: [],
+                  };
+                  news.items.forEach((item, idx) => {
+                    const cat = item.category || 'thai_hot';
+                    if (!grouped[cat]) grouped[cat] = [];
+                    grouped[cat].push({ item, idx });
+                  });
+                  const sections = [
+                    { key: 'thai_hot', label: '🔥 ข่าวกระแสไทยวันนี้', emoji: '🔥' },
+                    { key: 'thai_latest', label: '🆕 อัปเดตล่าสุด', emoji: '🆕' },
+                    { key: 'world', label: '🌏 ข่าวกระแสโลก', emoji: '🌏' },
+                    { key: 'korea', label: '🇰🇷 ข่าวกระแสเกาหลี', emoji: '🇰🇷' },
+                    { key: 'workers', label: '👷 ข่าววีซ่า/แรงงาน/คนไทยในเกาหลี', emoji: '👷' },
+                  ];
+                  return (
+                    <div className="newsList">
+                      {sections.map(section => {
+                        const items = grouped[section.key] || [];
+                        if (items.length === 0) return null;
+                        return (
+                          <div key={section.key} className="newsSection">
+                            <div className="newsSectionTitle">{section.label}</div>
+                            {items.map(({ item, idx }) => (
+                              <div
+                                key={idx}
+                                className={`newsCard ${news.selectedIndex === idx ? 'selected' : ''}`}
+                                onClick={() => summarizeNewsItem(idx)}
+                              >
+                                <div className="newsCardTop">
+                                  <span className="newsCardTitle">{item.title}</span>
+                                </div>
+                                <div className="newsCardMeta">
+                                  <span className="newsSource">📍 {item.source}</span>
+                                  {item.updatedAtText && <span className="newsTime">⏱ {item.updatedAtText}</span>}
+                                  {item.hotScore && item.hotScore >= 2 && (
+                                    <span className="newsHotBadge">🔥 {item.hotScore} สำนัก</span>
+                                  )}
+                                </div>
+                                {news.selectedIndex === idx && news.summarizing && (
+                                  <div className="newsSummaryLoading">น้องน้ำกำลังสรุป... 🌸</div>
+                                )}
+                                {news.selectedIndex === idx && !news.summarizing && news.summaryText && (
+                                  <div className="newsSummary">{news.summaryText}</div>
+                                )}
+                                <div className="newsActions">
+                                  <button onClick={(e)=>{e.stopPropagation(); summarizeNewsItem(idx);}}>
+                                    {news.selectedIndex === idx ? '🔄 สรุปใหม่' : '🎧 ฟังสรุป'}
+                                  </button>
+                                  {item.link && (
+                                    <a href={item.link} target="_blank" rel="noopener noreferrer" onClick={(e)=>e.stopPropagation()}>
+                                      🔗 อ่านเต็ม
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
             {reading && (
