@@ -81,6 +81,18 @@ type LifeMemoryClient = {
   currentJob?: { title: string; since: string };
   events?: Array<{ date: string; type: string; content: string; importance?: string }>;
   promises?: Array<{ id: string; content: string; expectedDate?: string; createdAt: string; status: string; outcome?: string }>;
+  // v8.8: User reminders
+  userReminders?: Array<{
+    id: string;
+    content: string;
+    category: string;
+    expectedDate?: string;
+    expectedTime?: string;
+    expectedDateTime?: string;
+    createdAt: string;
+    status: string;
+    followupAfter?: string;
+  }>;
   userProfile?: {
     prefersTeasing?: boolean;
     prefersSerious?: boolean;
@@ -108,11 +120,12 @@ type NewsItem = {
   link: string;
   published?: string;
   summary?: string;
-  category?: string;        // v8.7.1: thai_hot | thai_latest | world | korea | workers
+  category?: string;
   ageDays?: number;
   updatedAtText?: string;
-  hotScore?: number;        // v8.7.1: จำนวนสำนักที่รายงาน
-  alsoIn?: string[];        // v8.7.1: สำนักอื่นที่รายงาน
+  hotScore?: number;
+  alsoIn?: string[];
+  imageUrl?: string;       // v8.8: รูปภาพข่าว
 };
 type NewsState = {
   visible: boolean;
@@ -134,7 +147,7 @@ type ReadingSession = {
   updatedAt: number;
 };
 
-const APP_VERSION = "v8.7.1-news-hotscore";
+const APP_VERSION = "v8.8-reminder-system";
 const BOOKS_KEY = "nongnam_v4_books";
 const OUTFITS_KEY = "nongnam_v4_outfits";
 const MEMORY_KEY = "nongnam_v4_memory";
@@ -1441,6 +1454,15 @@ export default function Page() {
                                 className={`newsCard ${news.selectedIndex === idx ? 'selected' : ''}`}
                                 onClick={() => summarizeNewsItem(idx)}
                               >
+                                {item.imageUrl && (
+                                  <img
+                                    className="newsCardImage"
+                                    src={item.imageUrl}
+                                    alt=""
+                                    loading="lazy"
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                  />
+                                )}
                                 <div className="newsCardTop">
                                   <span className="newsCardTitle">{item.title}</span>
                                 </div>

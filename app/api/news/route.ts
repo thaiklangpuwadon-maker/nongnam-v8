@@ -26,7 +26,7 @@ type CachedNews = { items: NewsItemOut[]; ts: number }
 const NEWS_CACHE = new Map<string, CachedNews>()
 const CACHE_TTL_MS = 5 * 60 * 1000
 
-type RssItem = { title: string; link: string; pubDate: string; description: string }
+type RssItem = { title: string; link: string; pubDate: string; description: string; imageUrl?: string }
 
 type NewsItemOut = {
   title: string
@@ -38,8 +38,9 @@ type NewsItemOut = {
   ageDays: number
   ageMs: number
   updatedAtText: string
-  hotScore?: number       // จำนวนสำนักที่รายงาน (สำหรับ thai_hot)
-  alsoIn?: string[]       // สำนักอื่นที่รายงาน
+  imageUrl?: string       // v8.8: รูปภาพข่าว
+  hotScore?: number
+  alsoIn?: string[]
 }
 
 // === STOPWORDS for keyword extraction ===
@@ -60,17 +61,44 @@ function parseRssXml(xml: string): RssItem[] {
     const link = extractTag(itemXml, 'link')
     const pubDate = extractTag(itemXml, 'pubDate') || extractTag(itemXml, 'dc:date') || ''
     const description = extractTag(itemXml, 'description') || extractTag(itemXml, 'content:encoded') || ''
+    // v8.8: extract image URL
+    const imageUrl = extractImageUrl(itemXml, description)
     if (title && link) {
       items.push({
         title: cleanText(title),
         link: link.trim(),
         pubDate,
         description: cleanText(description).slice(0, 280),
+        imageUrl,
       })
     }
     if (items.length >= 25) break
   }
   return items
+}
+
+/**
+ * v8.8: extractImageUrl — หา URL รูปภาพจาก RSS item
+ * พยายามหลายแบบ: media:thumbnail, media:content, enclosure, <img> ใน description
+ */
+function extractImageUrl(itemXml: string, description: string): string | undefined {
+  // 1. media:thumbnail
+  const thumbMatch = itemXml.match(/<media:thumbnail[^>]*url=["']([^"']+)["']/i)
+  if (thumbMatch) return thumbMatch[1]
+  // 2. media:content
+  const mediaMatch = itemXml.match(/<media:content[^>]*url=["']([^"']+)["'][^>]*>/i)
+  if (mediaMatch) return mediaMatch[1]
+  // 3. enclosure
+  const enclosureMatch = itemXml.match(/<enclosure[^>]*url=["']([^"']+)["'][^>]*type=["']image/i)
+  if (enclosureMatch) return enclosureMatch[1]
+  // 4. <img> ใน description / content:encoded
+  const fullContent = itemXml + description
+  const imgMatch = fullContent.match(/<img[^>]+src=["']([^"']+)["']/i)
+  if (imgMatch) return imgMatch[1]
+  // 5. URL แบบ raw ใน description
+  const urlMatch = description.match(/https?:\/\/[^\s<>"']+\.(?:jpg|jpeg|png|webp)/i)
+  if (urlMatch) return urlMatch[0]
+  return undefined
 }
 
 function extractTag(xml: string, tag: string): string {
@@ -166,6 +194,7 @@ type ItemWithKeywords = {
   ageDays: number
   ageMs: number
   keywords: string[]
+  imageUrl?: string
 }
 
 /**
@@ -277,6 +306,7 @@ export async function GET(req: NextRequest) {
           ageDays,
           ageMs,
           keywords: extractTitleKeywords(item.title),
+          imageUrl: item.imageUrl,
         })
       }
     }
@@ -309,6 +339,7 @@ export async function GET(req: NextRequest) {
       ageDays: c.representative.ageDays,
       ageMs: c.representative.ageMs,
       updatedAtText: humanizeAge(c.representative.ageMs),
+      imageUrl: c.representative.imageUrl,
       hotScore: c.count,
       alsoIn: c.sources.filter(s => s !== c.representative.source),
     }))
@@ -333,6 +364,7 @@ export async function GET(req: NextRequest) {
         ageDays: i.ageDays,
         ageMs: i.ageMs,
         updatedAtText: humanizeAge(i.ageMs),
+        imageUrl: i.imageUrl,
       }))
     thaiLatestItems.forEach(i => { usedLinks.add(i.link); usedTitles.add(i.title.toLowerCase().slice(0, 40)) })
 
@@ -350,6 +382,7 @@ export async function GET(req: NextRequest) {
         ageDays: i.ageDays,
         ageMs: i.ageMs,
         updatedAtText: humanizeAge(i.ageMs),
+        imageUrl: i.imageUrl,
       }))
 
     // ===== KOREA: KBS Thai — เน้นกระแส =====
@@ -367,6 +400,7 @@ export async function GET(req: NextRequest) {
         ageDays: i.ageDays,
         ageMs: i.ageMs,
         updatedAtText: humanizeAge(i.ageMs),
+        imageUrl: i.imageUrl,
       }))
 
     // ===== WORKERS: ทุก pool — เน้นวีซ่า/แรงงาน =====
@@ -385,6 +419,7 @@ export async function GET(req: NextRequest) {
         ageDays: i.ageDays,
         ageMs: i.ageMs,
         updatedAtText: humanizeAge(i.ageMs),
+        imageUrl: i.imageUrl,
       }))
 
     // ===== Build final output =====
@@ -415,6 +450,7 @@ export async function GET(req: NextRequest) {
           ageDays: i.ageDays,
           ageMs: i.ageMs,
           updatedAtText: humanizeAge(i.ageMs),
+        imageUrl: i.imageUrl,
         }))
     }
 

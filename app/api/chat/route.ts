@@ -17,8 +17,13 @@ import {
   buildLifeTreePromptAddition,
   appendEvent,
   createDefaultLifeMemory,
+  // v8.8: Reminder System
+  detectUserReminder,
+  getActiveReminders,
+  markReminderAsked,
   type LifeMemory,
   type Promise as LifePromise,
+  type UserReminder,
 } from '../../../lib/lifeTreeEngine'
 
 export const runtime = 'nodejs'
@@ -563,6 +568,32 @@ export async function POST(req: NextRequest) {
       ].slice(-50)
     }
 
+    // v8.8: จับ user reminder (เตือนพี่/อย่าลืม + เวลา + เรื่อง)
+    const userReminderDetected = detectUserReminder(message, truthNow)
+    if (userReminderDetected) {
+      const newReminder: UserReminder = {
+        id: `r_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        ...userReminderDetected,
+      }
+      lifeMemory.userReminders = [
+        ...(lifeMemory.userReminders || []),
+        newReminder,
+      ].slice(-30)
+    }
+
+    // v8.8: เช็ค active reminders (upcoming + followup)
+    const { upcoming: upcomingReminders, followup: followupReminders } = getActiveReminders(
+      lifeMemory.userReminders || [],
+      truthNow
+    )
+    // ถ้ามี followup → mark ว่าถามแล้ว
+    if (followupReminders.length > 0) {
+      lifeMemory.userReminders = markReminderAsked(
+        lifeMemory.userReminders || [],
+        followupReminders[0].id
+      )
+    }
+
     // v8.6: Stable state — ใช้แทนสถานะที่กระโดดทุกข้อความ
     const stableState = getCurrentLifeState({
       hour: timeTruth.hour,
@@ -648,7 +679,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) + '\n\n' + buildLifeTreePromptAddition(lifeMemory, lifeMode) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) + '\n\n' + buildLifeTreePromptAddition(lifeMemory, lifeMode, truthNow) },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],

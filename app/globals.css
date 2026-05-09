@@ -613,3 +613,13 @@ textarea { width:100%; padding:13px 14px; border-radius:16px; border:1px solid #
   border-radius: 8px;
   margin-left: 4px;
 }
+
+/* v8.8: News card image */
+.newsCardImage {
+  width: 100%;
+  max-height: 130px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: rgba(255,200,220,0.2);
+}
