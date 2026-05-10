@@ -173,6 +173,11 @@ function detectIntent(message: string) {
   // v8.6: relative_date จริงต้องเป็นคำถาม "เมื่อวานวันอะไร" ไม่ใช่ "เมื่อคืนนอนไม่หลับ"
   if (/^(เมื่อวาน|พรุ่งนี้|เมื่อคืน|เมื่อเช้า)\s*(วันอะไร|วันที่|คือ|วัน)?(\?|$)/i.test(m.trim())) return 'relative_date_question'
   if (/(เมื่อวาน|พรุ่งนี้|เมื่อคืน|เมื่อเช้า)\s*(วันอะไร|วันที่เท่าไหร่|วันที่เท่าไร|คือวันอะไร)/i.test(m)) return 'relative_date_question'
+
+  // v8.9: Deep Search detection — ก่อนเช็ค news
+  if (isDeepSearchRequest(m)) return 'deep_search_request'
+  if (isDeepSearchConfirm(m)) return 'deep_search_confirm'
+
   // v8.5: news intent ทั้งหมด (ทั่วไป + เฉพาะเจาะจง)
   if (/(ข่าว|สรุปข่าว|เล่าข่าว|หาข่าว|เปิดข่าว|มีข่าว|อ่านข่าว|อยากรู้ข่าว)/i.test(m)) return 'news_request'
   if (/(เตือน|เตือนด้วย|ปลุก|อย่าลืม|remind|นัด|พรุ่งนี้|คืนนี้|อีก \d+)/i.test(m)) return 'reminder'
@@ -183,6 +188,21 @@ function detectIntent(message: string) {
   if (/(หอม|กอด|จูบ|คิดถึง|รัก|อ้อน|แฟน|เดต|เดท)/i.test(m)) return 'flirt'
   if (/(เซ็กซ์|มีอะไร|ทางเพศ|นอนด้วย|อยากได้เธอ)/i.test(m)) return 'romantic_physical'
   return 'casual'
+}
+
+// v8.9: Deep Search — จับคำขอข้อมูลละเอียด (เปลืองเพชร)
+function isDeepSearchRequest(m: string): boolean {
+  // ต้องมี trigger หลัก + คำขอจริงจัง
+  const hasDeepKeyword = /(หาข้อมูล|ค้นข้อมูล|ค้นหา|วิจัย|ละเอียด|ลึก|จริงจัง|วิเคราะห์|เปรียบเทียบ|รายละเอียด|ข้อมูลเชิงลึก|deep|research)/i.test(m)
+  const hasSubject = /(วีซ่า|กฎหมาย|ภาษี|มาตรการ|นโยบาย|กระบวนการ|ขั้นตอน|วิธีการ|วิธีทำ|tutorial|how to|eps|e-9|e9|f-2|f-4|รายงาน|สรุป.*ทั้งหมด|ค่าเงิน|อัตราแลกเปลี่ยน)/i.test(m)
+  return hasDeepKeyword && hasSubject
+}
+
+// v8.9: คำยืนยันให้ลุย deep search
+function isDeepSearchConfirm(m: string): boolean {
+  const trimmed = m.trim()
+  if (trimmed.length > 30) return false
+  return /^(เอา|เอาเลย|เอาสิ|ใช่|ใช่เลย|ตกลง|โอเค|ok|okay|ลุย|จัดมา|จัดเลย|ค้นเลย|หาเลย|yes|y\b)/i.test(trimmed)
 }
 
 function violates(reply: string) {
@@ -296,7 +316,22 @@ function localReply(message: string, memory: any, timeTruth: TimeTruthLite, visi
   else if (intent === 'care') reply = `${interjection}มานั่งตรงนี้ก่อนนะพี่ ไม่ต้องทำเป็นไหวตลอดก็ได้`
   else if (intent === 'flirt') reply = `${interjection}แหม… มาอ้อนแบบนี้อีกแล้วเหรอ น้ำยังไม่ทันตั้งตัวเลย`
   else if (intent === 'romantic_physical') reply = `${interjection}พี่พูดแรงไปนิดนะ น้ำเขินได้ แต่ขอคุยแบบนุ่ม ๆ ก่อนสิ`
-  else reply = `${interjection}${call}พูดมา น้ำจะตอบให้ตรงกว่าเดิม`
+  else {
+    // v8.9: หลายเลเยอร์ของ fallback ตามเวลา/อารมณ์ — ไม่ใช่ canned reply เดียว
+    const hour = timeTruth?.hour ?? 12
+    const fallbacks = hour < 6 || hour >= 23
+      ? [
+          `${interjection}อืม... ตอบยังไงดี ขออภัยพี่`,
+          `${interjection}เอ่อ... ดึกแล้วน้ำเริ่มเบลอ`,
+          `${interjection}ค่ะ ${call} พิมพ์ใหม่ทีน้ำตั้งสติแป๊บ`,
+        ]
+      : [
+          `${interjection}อืม...`,
+          `${interjection}เอ๊ะ พี่ลองพูดอีกทีดิ น้ำคิดไม่ทัน`,
+          `${interjection}ขอแป๊บนะ น้ำงงๆ`,
+        ]
+    reply = fallbacks[Math.floor(Math.random() * fallbacks.length)]
+  }
 
   if (sub) reply = compactHumanReply(reply, sub)
   if (micro) reply = microCompactReply(reply, micro)
@@ -638,6 +673,82 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // v8.9: Deep Search — ขอ confirm ก่อน (เปลืองเพชร)
+    if (intent === 'deep_search_request') {
+      const callName = memory?.userCallName || 'พี่'
+      const reply = `เรื่องนี้น้ำขุดให้ละเอียดได้นะ${callName} แต่ใช้เพชร 5 เม็ดนะคะ จะให้น้ำหามั้ย? 💎`
+      return json({
+        reply,
+        bubbles: [{ text: reply, delay: 0 }],
+        deepSearchPending: true,
+        deepSearchTopic: message,
+        gemCost: 5,
+        companionDNA: dna,
+        timeTruth,
+        visibleStatus,
+        updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth, pendingDeepSearch: message },
+        source: 'deep-search-confirm-v8.9',
+      })
+    }
+
+    // v8.9: Deep Search Confirm — ยืนยันแล้ว ใช้ AI ตอบยาว ละเอียด
+    if (intent === 'deep_search_confirm' && memory?.pendingDeepSearch) {
+      // ใช้ pendingDeepSearch + AI mode ละเอียด
+      // (ไปต่อด้านล่าง — แต่ override message + max_tokens)
+      const realQuery = memory.pendingDeepSearch
+      // เรียก AI ด้วย max_tokens สูง + temperature ต่ำ (แม่นยำกว่า)
+      const apiKey = process.env.OPENAI_API_KEY
+      if (apiKey) {
+        const callName = memory?.userCallName || 'พี่'
+        const deepSystemPrompt = `คุณคือ "${memory?.nongnamName || 'น้องน้ำ'}" — ผู้ช่วยที่กำลังหาข้อมูลให้ ${callName}
+
+โหมดการตอบครั้งนี้: DEEP SEARCH (ค้นข้อมูลละเอียด)
+
+กฎ:
+1. ตอบยาวได้ 400-600 token — ละเอียด ครบถ้วน
+2. ใช้ข้อมูลจริงเท่านั้น — ห้ามมโน ห้ามแต่งเรื่อง
+3. ถ้าไม่แน่ใจหรือข้อมูลอาจล้าสมัย → บอกตรงๆ พร้อมแนะนำให้เช็คจากแหล่งทางการ
+4. แบ่งหัวข้อให้อ่านง่าย (ใช้ - หรือ • นำหน้า)
+5. ลงท้ายด้วย "ถามเพิ่มได้นะ${callName}" — แบบเป็นน้องน้ำ
+6. ตอบเป็นภาษาไทย
+
+ห้ามใช้คำว่า AI, ChatGPT, GPT, ปัญญาประดิษฐ์, ผู้ช่วย`
+
+        try {
+          const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: deepSystemPrompt },
+                { role: 'user', content: realQuery },
+              ],
+              temperature: 0.5,
+              max_tokens: 700,
+            }),
+            cache: 'no-store',
+          })
+          const aiData = await aiRes.json().catch(() => null)
+          let deepReply = cleanText(aiData?.choices?.[0]?.message?.content || '')
+          if (!deepReply) deepReply = `ขอโทษนะ${callName} น้ำหาข้อมูลไม่ได้ตอนนี้ ลองอีกทีค่ะ`
+          return json({
+            reply: deepReply,
+            bubbles: [{ text: deepReply, delay: 0 }],
+            deepSearchDone: true,
+            gemCost: 5,
+            companionDNA: dna,
+            timeTruth,
+            visibleStatus,
+            updatedMemory: { ...memory, companionDNA: dna, visibleStatus, timeTruth, pendingDeepSearch: null },
+            source: 'deep-search-result-v8.9',
+          })
+        } catch (e) {
+          // fall through
+        }
+      }
+    }
+
     // v8.5: ตอบเรื่องข่าว direct + ส่ง newsTopic กลับให้ frontend ไปดึง /api/news
     if (intent === 'news_request') {
       const newsTopic = extractNewsTopic(message)
@@ -645,7 +756,7 @@ export async function POST(req: NextRequest) {
       return json({
         reply,
         bubbles: [{ text: reply, delay: 0 }],
-        newsTopic,           // v8.5: frontend จะใช้ key นี้ไปดึงข่าว
+        newsTopic,
         triggerNewsFetch: true,
         companionDNA: dna,
         timeTruth,

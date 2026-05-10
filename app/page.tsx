@@ -66,6 +66,8 @@ type Memory = {
   speechRate: number;
   apiConsent: boolean;
   apiMode: ApiMode;
+  // v8.9: Deep Search state
+  pendingDeepSearch?: string | null;
 };
 
 type ChatMsg = { role: "user" | "assistant"; text: string; ts: number };
@@ -920,6 +922,15 @@ export default function Page() {
             triggerNewsFetch = true;
             newsTopicFromServer = String(data.newsTopic);
           }
+          // v8.9: หักเพชรเมื่อ deep search done
+          if (data?.deepSearchDone && typeof data?.gemCost === 'number') {
+            const cost = Math.max(1, Math.floor(data.gemCost));
+            updateMem({ gems: Math.max(0, (mem.gems || 0) - cost), pendingDeepSearch: null });
+          }
+          // v8.9: เก็บ pendingDeepSearch
+          if (data?.deepSearchPending && data?.deepSearchTopic) {
+            updateMem({ pendingDeepSearch: data.deepSearchTopic });
+          }
           // v8.6: รับ updatedLifeMemory และ save
           if (data?.updatedLifeMemory) {
             setLifeMemoryState(data.updatedLifeMemory);
@@ -1394,7 +1405,6 @@ export default function Page() {
           <div className="chat">
             <img className={`hero-img ${status==="speaking" || reading?.status==="reading" ? "alive" : ""}`} style={{transform:`scale(${zoom})`}} src={chatImage} alt="nongnam"/>
             <div className="topbar">
-              <button onClick={()=>setScreen("welcome")}>‹</button>
               <div><b>{mem.nongnamName}</b><small>{visibleStatus?.displayText || `● พร้อมคุยกับ${mem.userCallName}แล้ว`}</small></div>
               <button onClick={toggleVoice}>{mem.voiceUnlocked ? "🔊" : "🔇"}</button>
               <button onClick={()=>setScreen("settings")}>⚙️</button>
