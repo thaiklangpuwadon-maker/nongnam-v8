@@ -1496,6 +1496,7 @@ export default function Page() {
               <button onClick={()=>setScreen("outfits")}>👗<span>ชุด</span></button>
               <button onClick={()=>{setBookCat("ทั้งหมด"); setScreen("books");}}>📚<span>หนังสือ</span></button>
               <button onClick={()=>fetchNews("ข่าวเด่นวันนี้")} title="ข่าววันนี้">📰<span>ข่าว</span></button>
+              <button onClick={()=>window.open("https://nongnam-v2.vercel.app/", "_blank", "noopener,noreferrer")} title="น้องน้ำล่าม - แปลภาษาไทย-เกาหลี">🌐<span>ล่าม</span></button>
               <button onClick={()=>setZoom(z=>Math.min(1.7, z+.15))}>＋</button>
               <button onClick={()=>setZoom(z=>Math.max(.85, z-.15))}>－</button>
             </div>
