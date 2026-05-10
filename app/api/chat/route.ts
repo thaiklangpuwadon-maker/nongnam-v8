@@ -192,9 +192,8 @@ function detectIntent(message: string) {
 
 // v8.9: Deep Search — จับคำขอข้อมูลละเอียด (เปลืองเพชร)
 function isDeepSearchRequest(m: string): boolean {
-  // ต้องมี trigger หลัก + คำขอจริงจัง
-  const hasDeepKeyword = /(หาข้อมูล|ค้นข้อมูล|ค้นหา|วิจัย|ละเอียด|ลึก|จริงจัง|วิเคราะห์|เปรียบเทียบ|รายละเอียด|ข้อมูลเชิงลึก|deep|research)/i.test(m)
-  const hasSubject = /(วีซ่า|กฎหมาย|ภาษี|มาตรการ|นโยบาย|กระบวนการ|ขั้นตอน|วิธีการ|วิธีทำ|tutorial|how to|eps|e-9|e9|f-2|f-4|รายงาน|สรุป.*ทั้งหมด|ค่าเงิน|อัตราแลกเปลี่ยน)/i.test(m)
+  const hasDeepKeyword = /(หาข้อมูล|ค้นข้อมูล|ค้นหา|วิจัย|ละเอียด|ลึก|จริงจัง|วิเคราะห์|เปรียบเทียบ|รายละเอียด|ข้อมูลเชิงลึก|deep|research|ทำยังไง|ทำไง|วิธีทำ|วิธีการ|ขั้นตอน|ยังไงบ้าง|อย่างไรบ้าง|how to|how do)/i.test(m)
+  const hasSubject = /(วีซ่า|visa|กฎหมาย|ภาษี|มาตรการ|นโยบาย|กระบวนการ|ขั้นตอน|วิธีการ|วิธีทำ|tutorial|how to|eps|e-9|e9|f-2|f-4|f-2-r|f-4-r|รายงาน|สรุป.*ทั้งหมด|ค่าเงิน|อัตราแลกเปลี่ยน|สิทธิ์|เงื่อนไข|เปลี่ยน.*เป็น|เปลี่ยน.*วีซ่า|ต่อ.*วีซ่า|ขอ.*วีซ่า|สถานทูต|กงสุล|พำนัก|พักอาศัย|ใบอนุญาต)/i.test(m)
   return hasDeepKeyword && hasSubject
 }
 
@@ -784,13 +783,32 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // v8.10: ถ้าคำถามเกี่ยวกับ visa/แรงงาน/กฎหมาย — เพิ่ม suggestion ทิ้งท้าย
+    const isLegalTopic = /(วีซ่า|visa|f-2|f-4|e-9|e9|e-7|eps|กฎหมาย|แรงงาน|ภาษี|สถานทูต|กงสุล|มาตรการ|ใบอนุญาต|พำนัก)/i.test(message)
+    let extraPromptHints = ''
+    if (isLegalTopic) {
+      extraPromptHints = `
+
+═══════════════════════════════════════════════════
+LEGAL/VISA TOPIC — กฎพิเศษ
+═══════════════════════════════════════════════════
+${memory?.userCallName || 'พี่'}กำลังถามเรื่อง visa/แรงงาน/กฎหมาย
+ตอบสั้นๆ ครอบคลุมประเด็นพื้นฐานเพียงพอ (3-5 บรรทัด)
+แล้ว **ทิ้งท้ายด้วยประโยคแบบนี้** (เลือกประโยคที่เหมาะสมกับคำถาม):
+- "...หรือจะให้น้ำหาข้อมูลละเอียดให้ก็ได้นะ${memory?.userCallName || 'พี่'} แต่ใช้เพชรหน่อย 💎"
+- "...ถ้าอยากรู้ลึกกว่านี้ น้ำขุดมาให้ได้นะ ใช้เพชรนิดนึง 💎"
+- "...ลองถามให้ละเอียดมาอีกที น้ำจะค้นข้อมูลเป็นทางการให้ ใช้เพชรนะ 💎"
+
+ห้ามทิ้งท้ายแบบจืดๆ เช่น "เอาใจช่วยนะ"`
+    }
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) + '\n\n' + buildLifeTreePromptAddition(lifeMemory, lifeMode, truthNow) },
+          { role: 'system', content: buildSystemPrompt({ memory, message, dna, layer, sub, micro, life, bodyAuto, core, visibleStatus, timeTruth }) + '\n\n' + buildLifeTreePromptAddition(lifeMemory, lifeMode, truthNow) + extraPromptHints },
           ...safeRecent(recent),
           { role: 'user', content: message },
         ],
